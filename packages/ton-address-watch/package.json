@@ -1,0 +1,23 @@
+{
+  "name": "@ton/address-watch",
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@ton/core": "^0.56.3",
+    "@ton/crypto": "^3.2.0",
+    "@types/pg": "^8.11.4",
+    "dataloader": "^2.2.2",
+    "lru_map": "^0.4.1",
+    "pg": "^8.11.5",
+    "pg-format": "^1.0.4",
+    "ton-lite-client": "^3.0.0",
+    "@ton/server-filter": "workspace:*"
+  },
+  "devDependencies": {},
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

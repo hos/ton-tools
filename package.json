@@ -1,0 +1,17 @@
+{
+  "name": "ton-tools",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/pg-format": "^1.0.5"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {},
+  "workspaces": [
+    "packages/*"
+  ]
+}
