@@ -1,4 +1,4 @@
-# @ton/address-watch
+# @ton/watch
 
 
 NOTE: avoid errors on same transaction writing from multiple wallets, there can be duplicate transactions

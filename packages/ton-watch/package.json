@@ -1,5 +1,5 @@
 {
-  "name": "@ton/address-watch",
+  "name": "@ton/watch",
   "module": "src/index.ts",
   "type": "module",
   "scripts": {
