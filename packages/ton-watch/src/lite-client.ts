@@ -9,7 +9,7 @@ import { LRUMap } from "lru_map";
 
 import { TON_NETWORK_CONFIG_URL } from "./config";
 import type { LsConfig } from "./types";
-import { filterLiteServers } from "@ton/server-filter";
+import { filterLiteServers } from "../../ton-ls/src";
 
 let liteClient: LiteClient;
 let createLiteClient: Promise<void>;

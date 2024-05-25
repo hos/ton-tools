@@ -1,5 +1,5 @@
 {
-  "name": "@ton/watch",
+  "name": "ton-watch",
   "module": "src/index.ts",
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "pg": "^8.11.5",
     "pg-format": "^1.0.4",
     "ton-lite-client": "^3.0.0",
-    "@ton/server-filter": "workspace:*"
+    "ton-ls": "workspace:*"
   },
   "devDependencies": {},
   "peerDependencies": {

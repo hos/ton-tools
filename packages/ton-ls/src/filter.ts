@@ -1,5 +1,5 @@
 import { LiteSingleEngine, LiteClient } from "ton-lite-client";
-import { intToIP } from "./ip.js";
+import { intToIP } from "./ip.ts";
 import { delay } from "./delay.ts";
 
 /**

@@ -1,4 +1,4 @@
-# @ton/server-filter
+# @ton/ls
 
 This is a server filter package for the TON (The Open Network) project. It run benchmarks on the servers and filters them based on the results.
 
@@ -7,10 +7,10 @@ This is a server filter package for the TON (The Open Network) project. It run b
 To install the package and its dependencies, use the following command:
 
 ```bash
-npx jsr add @ton/server-filter
-yarn dlx jsr add @ton/server-filter
-pnpm dlx jsr add @ton/server-filter
-bunx jsr add @ton/server-filter
+npx jsr add @ton/ls
+yarn dlx jsr add @ton/ls
+pnpm dlx jsr add @ton/ls
+bunx jsr add @ton/ls
 ```
 
 ## Usage
@@ -27,7 +27,7 @@ import {
 } from "ton-lite-client";
 
 
-import { filterLiteServers, type LsConfig, getServers } from "@ton/server-filter";
+import { filterLiteServers, type LsConfig, getServers } from "@ton/ls";
 
 let liteClient: LiteClient;
 let createLiteClient: Promise<void>;
