@@ -9,7 +9,12 @@ import { delay } from "./delay.ts";
  * - "testnet" to get servers from the testnet network config. [Testnet Network Config](https://ton.org/testnet-global.config.json)
  * - URL to get servers from a custom network config.
  */
-export type ServerDefinition = LsConfig[] | "mainnet" | "testnet" | string;
+export type ServerDefinition =
+  | LsConfig[]
+  | "mainnet"
+  | "testnet"
+  | `https://${string}`
+  | `http://${string}`;
 
 /**
  * Represents a LiteServer config as it comes from the network config.
@@ -125,7 +130,7 @@ export async function getServers(
  * @returns A promise that resolves to the filtered LiteServers.
  */
 export async function filterLiteServers(
-  serversOrNetwork: LsConfig[] | "mainnet" | "testnet" | string,
+  serversOrNetwork: ServerDefinition,
   options?: FilterLiteServersOptions
 ): Promise<BenchmarkLiteServersReturn> {
   const { timeout = 3000, divergeFromAvg, verbosity } = options || {};
