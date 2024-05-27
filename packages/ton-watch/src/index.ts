@@ -1,14 +1,33 @@
-import { fromNano } from "@ton/core";
-import { pgClient } from "./database";
+import { pgClient } from "./stores/pg/pg-client";
 
-import { forEachTx } from "./forEachTx";
+import { getLiteClient } from "./lite-client";
+import { Watch } from "./watch";
+import { PgStore } from "./stores";
 
-await pgClient.query(`delete from wallet_transactions`);
+const address = "";
 
-let count = 0;
+const liteClient = await getLiteClient('mainnet');
 
-await forEachTx("ADDRESS_HERE", {
-  beforeWrite: async (tx) => {
-    console.log(`${tx.lt} ${fromNano(tx.totalFees.coins)} /// ${count++}`);
-  },
-});
+const store = new PgStore(pgClient);
+const watch = new Watch({ liteClient, store });
+
+await watch.migrate({ drop: false });
+
+if (address) {
+  await watch.store.setAddress(address, 0n);
+}
+
+const allAddresses = await watch.store.allAddresses();
+console.log(`Watching addresses:
+  ${allAddresses.map((a) => ` "${a}"`).join("\n")}`);
+
+await watch.start();
+
+const {
+  rows: [{ count }],
+} = await pgClient.query(`select count(*) from transactions`);
+
+console.log(`Stored ${count} transactions`);
+
+// Cleanup on exit
+await watch.close();

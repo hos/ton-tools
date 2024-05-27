@@ -7,26 +7,23 @@ import {
 } from "ton-lite-client";
 import { LRUMap } from "lru_map";
 
-import { TON_NETWORK_CONFIG_URL } from "./config";
-import type { LsConfig } from "./types";
-import { filterLiteServers } from "../../ton-ls/src";
+import { filterLiteServers, type ServerDefinition } from "../../ton-ls/src";
 
 let liteClient: LiteClient;
 let createLiteClient: Promise<void>;
 
 const engines: LiteEngine[] = [];
 
-export async function getLiteClient(_configUrl?: string): Promise<LiteClient> {
+export async function getLiteClient(
+  config: ServerDefinition = 'mainnet'
+): Promise<LiteClient> {
   if (liteClient) {
     return liteClient;
   }
 
   if (!createLiteClient) {
     createLiteClient = (async () => {
-      const data = await fetch(TON_NETWORK_CONFIG_URL).then((r) => r.json());
-
-      const liteServers = data.liteservers as LsConfig[];
-      const { fast } = await filterLiteServers(liteServers, {
+      const { fast } = await filterLiteServers(config, {
         verbosity: "info",
       });
 
