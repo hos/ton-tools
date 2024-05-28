@@ -42,7 +42,7 @@ export interface Transactions {
   to_address: string;
   lt: string;
   hash: string;
-  message: string | null;
+  boc: Buffer | null;
   transaction_created_at: Date;
   amount: string;
   created_at: Date;
@@ -57,7 +57,7 @@ export interface TransactionsInitializer {
   to_address: string;
   lt: string;
   hash: string;
-  message?: string | null;
+  boc?: Buffer | null;
   transaction_created_at: Date;
   amount: string;
   created_at?: Date;

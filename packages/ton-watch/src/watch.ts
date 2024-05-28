@@ -1,6 +1,5 @@
 import { type PoolClient } from "pg";
 import { Address, Cell, loadTransaction, type Transaction } from "@ton/core";
-import { pgClient as globalPgClient } from "./stores/pg/pg-client";
 
 import { bigIntToBuffer, toFriendlyAddress } from "./ton";
 import type { LiteClient } from "ton-lite-client";

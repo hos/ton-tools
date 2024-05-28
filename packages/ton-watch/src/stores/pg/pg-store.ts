@@ -1,4 +1,9 @@
-import { Address, type Transaction } from "@ton/core";
+import {
+  Address,
+  beginCell,
+  storeTransaction,
+  type Transaction,
+} from "@ton/core";
 
 import {
   bigIntToHex,
@@ -53,7 +58,7 @@ export class PgStore implements Store {
         to_address text not null references addresses(address) on delete cascade,
         lt bigint not null,
         hash text not null,
-        message text,
+        boc bytea,
         transaction_created_at timestamp with time zone not null,
         amount bigint not null,
 
@@ -78,7 +83,9 @@ export class PgStore implements Store {
     }
 
     await this.pgClient.query(
-      `insert into addresses (address, start_lt) values ($1, ${params.length === 2 ? "$2" : "default"})
+      `insert into addresses (address, start_lt) values ($1, ${
+        params.length === 2 ? "$2" : "default"
+      })
         on conflict (address) do update
           set start_lt = coalesce(excluded.start_lt, addresses.start_lt)`,
       params
@@ -223,7 +230,15 @@ export class PgStore implements Store {
   }
 
   serialize(tx: Transaction): TransactionsInitializer | null {
+    if (
+      tx.inMessage?.info.type !== "external-in" &&
+      tx.inMessage?.info.type !== "internal"
+    ) {
+      return null;
+    }
+
     const hash = tx.hash().toString("hex");
+    const asBuffer = beginCell().store(storeTransaction(tx)).endCell().toBoc();
 
     if (tx.inMessage?.info.type === "internal") {
       return {
@@ -232,7 +247,7 @@ export class PgStore implements Store {
         to_address: toRawAddress(tx.inMessage.info.dest),
         lt: tx.lt.toString(),
         hash,
-        message: tx.inMessage.body.toBoc().toString("hex"),
+        boc: asBuffer,
         transaction_created_at: new Date(tx.now * 1000),
         prev_lt: tx.prevTransactionLt.toString(),
         prev_hash: bigIntToHex(tx.prevTransactionHash),
@@ -246,7 +261,7 @@ export class PgStore implements Store {
         to_address: toRawAddress(tx.inMessage.info.dest),
         lt: tx.lt.toString(),
         hash,
-        message: tx.inMessage.body.toBoc().toString("hex"),
+        boc: asBuffer,
         transaction_created_at: new Date(tx.now * 1000),
         prev_lt: tx.prevTransactionLt.toString(),
         prev_hash: bigIntToHex(tx.prevTransactionHash),
