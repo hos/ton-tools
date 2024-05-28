@@ -1,5 +1,10 @@
 # @ton/watch
 
+This project is only intended for indexing small amount of addresses, if you want to index a large amount of addresses or the whole blockchain,
+take a look at [ton-indexer](https://github.com/toncenter/ton-indexer) or [ton-index-wokrer](https://github.com/toncenter/ton-index-worker).
+
+
+Currently this writes about 1000 transactions per minute.
 
 NOTE: avoid errors on same transaction writing from multiple wallets, there can be duplicate transactions
 if we have both addresses in parsers source and the target, for one it will be incoming for the other outgoing.

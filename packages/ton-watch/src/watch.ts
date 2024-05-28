@@ -110,11 +110,10 @@ export class Watch {
       return storeOldestCursor;
     }
 
-    const lastBlock = await this.liteClient.getMasterchainInfo();
-
+    const chain = await this.liteClient.getMasterchainInfo();
     const state = await this.liteClient.getAccountState(
       address,
-      lastBlock.last
+      chain.last
     );
 
     if (!state.lastTx) {

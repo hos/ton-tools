@@ -1,17 +1,18 @@
-import { pgClient } from "./stores/pg/pg-client";
+import { pgClient, type Transactions } from "./stores/pg/pg-client";
 
 import { getLiteClient } from "./lite-client";
 import { Watch } from "./watch";
 import { PgStore } from "./stores";
+import { Cell, loadTransaction, type Transaction } from "@ton/core";
 
-const address = "";
+const address = "UQCJTkhd1W2wztkVNp_dsKBpv2SIoUWoIyzI7mQrbSrj_Ilk";
 
 const liteClient = await getLiteClient('mainnet');
 
 const store = new PgStore(pgClient);
 const watch = new Watch({ liteClient, store });
 
-await watch.migrate({ drop: false });
+await watch.migrate({ drop: true });
 
 if (address) {
   await watch.store.setAddress(address, 0n);
@@ -24,10 +25,18 @@ console.log(`Watching addresses:
 await watch.start();
 
 const {
-  rows: [{ count }],
-} = await pgClient.query(`select count(*) from transactions`);
+  rows: [{ boc }],
+} = await pgClient.query<Pick<Transactions, 'boc'>>(`select boc from transactions order by created_at desc limit 1`);
 
-console.log(`Stored ${count} transactions`);
+if(!boc)  {
+  throw new Error('No transactions found');
+}
+
+const cell = Cell.fromBoc(boc)[0];
+const tx = loadTransaction(cell.beginParse());
+
+console.log(`Last transaction: ${tx.hash().toString('hex')}`)
+
 
 // Cleanup on exit
-await watch.close();
+// await watch.close();

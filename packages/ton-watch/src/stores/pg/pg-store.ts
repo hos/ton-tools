@@ -237,18 +237,19 @@ export class PgStore implements Store {
       return null;
     }
 
+    const createdAt = new Date(tx.now * 1000);
     const hash = tx.hash().toString("hex");
-    const asBuffer = beginCell().store(storeTransaction(tx)).endCell().toBoc();
+    const boc = beginCell().store(storeTransaction(tx)).asCell().toBoc();
 
     if (tx.inMessage?.info.type === "internal") {
       return {
-        amount: tx.inMessage.info.value.coins.toString(),
         from_address: toRawAddress(tx.inMessage.info.src),
         to_address: toRawAddress(tx.inMessage.info.dest),
+        amount: tx.inMessage.info.value.coins.toString(),
         lt: tx.lt.toString(),
         hash,
-        boc: asBuffer,
-        transaction_created_at: new Date(tx.now * 1000),
+        boc,
+        transaction_created_at: createdAt,
         prev_lt: tx.prevTransactionLt.toString(),
         prev_hash: bigIntToHex(tx.prevTransactionHash),
       };
@@ -256,13 +257,13 @@ export class PgStore implements Store {
 
     if (tx.inMessage?.info.type === "external-in") {
       return {
-        amount: "0",
-        from_address: "external",
+        from_address: tx.inMessage.info.src?.toString() || "external-in",
         to_address: toRawAddress(tx.inMessage.info.dest),
+        amount: "0",
         lt: tx.lt.toString(),
         hash,
-        boc: asBuffer,
-        transaction_created_at: new Date(tx.now * 1000),
+        boc,
+        transaction_created_at: createdAt,
         prev_lt: tx.prevTransactionLt.toString(),
         prev_hash: bigIntToHex(tx.prevTransactionHash),
       };
