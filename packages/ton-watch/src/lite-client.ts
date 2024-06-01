@@ -6,52 +6,60 @@ import {
   LiteSingleEngine,
 } from "ton-lite-client";
 import { LRUMap } from "lru_map";
-
+import { createHash } from "node:crypto";
 import { filterLiteServers, type ServerDefinition } from "../../ton-ls/src";
-
-let liteClient: LiteClient;
-let createLiteClient: Promise<void>;
 
 const engines: LiteEngine[] = [];
 
+const clients = new Map<string, LiteClient>();
+
 export async function getLiteClient(
-  config: ServerDefinition = 'mainnet'
+  config: ServerDefinition = "mainnet"
 ): Promise<LiteClient> {
-  if (liteClient) {
-    return liteClient;
+  const configHash =
+    typeof config === "string"
+      ? config
+      : createHash("md5")
+          .update(JSON.stringify(config))
+          .digest("hex")
+          .toString();
+
+  const cachedLc = clients.get(configHash);
+  if (cachedLc) {
+    return cachedLc;
   }
 
-  if (!createLiteClient) {
-    createLiteClient = (async () => {
-      const { fast } = await filterLiteServers(config, {
-        verbosity: "info",
-      });
+  const createLiteClient = (async () => {
+    const { fast } = await filterLiteServers(config, {
+      verbosity: "info",
+    });
 
-      for (const server of fast) {
-        const { lsConfig } = server;
+    for (const server of fast) {
+      const { lsConfig } = server;
 
-        engines.push(
-          new LiteSingleEngine({
-            host: lsConfig.host,
-            publicKey: lsConfig.publicKey,
-          })
-        );
-      }
+      engines.push(
+        new LiteSingleEngine({
+          host: lsConfig.host,
+          publicKey: lsConfig.publicKey,
+        })
+      );
+    }
 
-      const engine: LiteEngine = new LiteRoundRobinEngine(engines);
+    const engine: LiteEngine = new LiteRoundRobinEngine(engines);
 
-      const cacheMap = new LRUMap(5000);
-      const lc = new LiteClient({
-        engine,
-        cacheMap: () => cacheMap,
-        batchSize: 1,
-      }) as LiteClient;
+    const cacheMap = new LRUMap(5000);
+    const lc = new LiteClient({
+      engine,
+      cacheMap: () => cacheMap,
+      batchSize: 1,
+    }) as LiteClient;
 
-      liteClient = lc;
-    })();
-  }
+    return lc;
+  })();
 
-  await createLiteClient;
+  const lc = await createLiteClient;
 
-  return liteClient;
+  clients.set(configHash, lc);
+
+  return lc;
 }
