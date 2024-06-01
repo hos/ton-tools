@@ -12,9 +12,9 @@ export type BeforeWrite = (
   dbAccess: PoolClient
 ) => Promise<void>;
 
-interface WatchOptions {
+interface WatchOptions<S extends Store> {
   liteClient: LiteClient;
-  store: Store;
+  store: S;
   pageSize?: number;
 }
 
@@ -23,14 +23,14 @@ type Cursor = {
   hash: Buffer;
 };
 
-export class Watch {
-  readonly store: Store;
+export class Watch<S extends Store> {
+  readonly store: S;
   readonly liteClient: LiteClient;
   pageSize = 16; // 16 is the maximum we can get with ton-lite-client
   interval = 100;
   private isClosed = false;
 
-  constructor(options: WatchOptions) {
+  constructor(options: WatchOptions<S>) {
     this.store = options.store;
     this.liteClient = options.liteClient;
 
@@ -42,10 +42,6 @@ export class Watch {
   close = () => {
     this.isClosed = true;
   };
-
-  async migrate({ drop = false }) {
-    await this.store.migrate({ drop });
-  }
 
   async getTransactions(
     address: Address,
@@ -77,7 +73,7 @@ export class Watch {
     const addresses = await this.store.allAddresses();
 
     for (const addr of addresses) {
-      await this.writeBackward(addr).catch((e) => {
+      await this.fetchNext(addr).catch((e) => {
         logger.error(`[${addr}]:`, e);
       });
     }
@@ -142,7 +138,7 @@ export class Watch {
     return onChainCursor;
   }
 
-  async writeBackward(addr: string) {
+  async fetchNext(addr: string) {
     const address = Address.parse(addr);
     const addrRaw = address.toRawString();
     const slug = toFriendlyAddress(addrRaw);
