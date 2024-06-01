@@ -14,7 +14,12 @@ export type StoreTx = {
 };
 
 export interface Store {
-  migrate: (args: { drop?: boolean; schema?: string }) => Promise<void>;
+  /**
+   * This is a good place to run migrations, and initialize the store.
+   * @param args Any data that you want to pass to the store implementation.
+   * @returns 
+   */
+  start: (args: any) => Promise<void>;
 
   /**
    * @param address Address to check if it exists in the database.
@@ -64,4 +69,10 @@ export interface Store {
    * @returns
    */
   close: () => Promise<void>;
+
+  /**
+   * Store must call this function for each transaction it receives.
+   * @returns
+   */
+  onTransaction?: (tx: Transaction) => Promise<void>;
 }

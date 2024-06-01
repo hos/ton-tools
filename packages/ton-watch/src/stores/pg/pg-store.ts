@@ -32,7 +32,7 @@ export class PgStore implements Store {
     this.pgClient = pgClient;
   }
 
-  async migrate(args: MigrateOptions) {
+  async start(args: MigrateOptions) {
     const { drop, schema = "public" } = args;
 
     if (drop) {
