@@ -18,7 +18,6 @@ bunx jsr add @ton/ls
 After installation, you can use the package in your project as follows:
 
 ```javascript
-// import axios from 'axios'
 import {
   LiteClient,
   type LiteEngine,
