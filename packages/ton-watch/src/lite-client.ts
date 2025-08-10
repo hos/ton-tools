@@ -7,7 +7,7 @@ import {
 } from "ton-lite-client";
 import { LRUMap } from "lru_map";
 import { createHash } from "node:crypto";
-import { filterLiteServers, type ServerDefinition } from "../../ton-ls/src";
+import { filterLiteServers, type ServerDefinition } from "@ton/ls";
 
 const engines: LiteEngine[] = [];
 

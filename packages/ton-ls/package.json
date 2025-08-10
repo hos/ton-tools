@@ -1,5 +1,5 @@
 {
-  "name": "ton-ls",
+  "name": "@ton/ls",
   "exports": "./src/index.ts",
   "type": "module",
   "version": "0.0.1",
