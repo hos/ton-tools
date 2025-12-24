@@ -40,7 +40,7 @@ export async function getLiteClient(_configUrl?: string): Promise<LiteClient> {
 
   if (!createLiteClient) {
     createLiteClient = (async () => {
-      const customURL = await getServers("https://ton.org/global.config.json");
+      const customURL = await getServers("https://ton-blockchain.github.io/global.config.json");
       const mainnetServers = await getServers("mainnet");
       const testnetServers = await getServers("testnet");
       const customServers = [{id: {key: "base64"}, ip: 123, }] as LsConfig[];

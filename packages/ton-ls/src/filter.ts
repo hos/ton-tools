@@ -5,8 +5,8 @@ import { delay } from "./delay.ts";
 /**
  * Represents a server definition.
  * - Array of LiteServer configs.
- * - "mainnet" to get servers from the mainnet network config. [Mainnet Network Config](https://ton.org/global.config.json)
- * - "testnet" to get servers from the testnet network config. [Testnet Network Config](https://ton.org/testnet-global.config.json)
+ * - "mainnet" to get servers from the mainnet network config. [Mainnet Network Config](https://ton-blockchain.github.io/global.config.json)
+ * - "testnet" to get servers from the testnet network config. [Testnet Network Config](https://ton-blockchain.github.io/testnet-global.config.json)
  * - URL to get servers from a custom network config.
  */
 export type ServerDefinition =
@@ -103,13 +103,13 @@ export async function getServers(
   }
 
   if (servers === "mainnet") {
-    return fetch("https://ton.org/global.config.json")
+    return fetch("https://ton-blockchain.github.io/global.config.json")
       .then((r) => r.json())
       .then((data) => data.liteservers as LsConfig[]);
   }
 
   if (servers === "testnet") {
-    return fetch("https://ton.org/testnet-global.config.json")
+    return fetch("https://ton-blockchain.github.io/testnet-global.config.json")
       .then((r) => r.json())
       .then((data) => data.liteservers as LsConfig[]);
   }
