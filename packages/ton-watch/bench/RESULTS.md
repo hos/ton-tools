@@ -88,6 +88,7 @@ Measured 2026-10-06: `getTransactions` for real transactions of `EQBYTuYbLf8INxF
 |---|---:|:---:|---|---:|---:|---:|---:|---:|:---:|---:|
 | after-7d | 7d | on | postgres | 709477 | 8.5 | 1,396 | 67803 | 133 | 10/10 | 0 |
 | before-7d | 7d | off | postgres | 709710 | 28.1 | 422 | 44395 | 26.4 | 10/10 | 0 |
+| after-49d | 49d | on | postgres | 3906096 | 57.1 | 1,139 | 273013 | 79.6 | 0/10 | 10 |
 
 ## Idle cost
 
