@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "type": "transaction",
+  "id": "0:7e0fb71e6f1460aad952dcba695fa728df18701e6b0d3142af7a5151dccb9a68:108207715000018:47e1cbce97abfc3bdd40af51008abaab76ff4eea9e13a81621223983fcc515c8",
+  "webhook": "default",
+  "address": "0:7e0fb71e6f1460aad952dcba695fa728df18701e6b0d3142af7a5151dccb9a68",
+  "lt": "108207715000018",
+  "hash": "47e1cbce97abfc3bdd40af51008abaab76ff4eea9e13a81621223983fcc515c8",
+  "utime": 1791300469,
+  "prev": null,
+  "boc": "te6ccgECBwEAAVoAA6934Ptx5vFGCq2VLcumlfpyjfGHAeaw0xQq96UVHcy5poAABiahJqHtIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAasUTdQABgIAQUGAQGgAgGrSAHnITKH6pzSYuFhCXqejSirH7/GqLQbc1CTqx5A64/MawAfg+3Hm8UYKrZUty6aV+nKN8YcB5rDTFCr3pRUdzLmmgQEBgKBrgAAxNQk1D2i1Yom6sADAWRzYtCcAAAAAAAAAABAQw2ZSAGR7Q7IGdygyNMl4XzwsHH8CLwM2dEpDcg8yxqDux1g9wQAPgAAAABDcm9zcy1jaGFpbiBzd2FwIHdpdGhkcmF3YWwAgnKQrsiWWvq7FuvDy5tAjrrnG2GNeHiLyA0JhDWTysmNpCRXGDyuDOymnDYQwpyq2wDY6nB5AGdbGspKnHVGo3AQAAkMCEBJIA==",
+  "parsed": {
+    "type": "generic",
+    "success": false,
+    "aborted": true,
+    "compute": {
+      "type": "skipped",
+      "reason": "no-gas"
+    },
+    "action": null,
+    "receivedBounce": false,
+    "bouncedBack": false,
+    "direction": "incoming",
+    "inMessage": {
+      "type": "internal",
+      "src": "0:f3909943f54e693170b084bd4f4694558fdfe3545a0db9a849d58f2075c7e635",
+      "dest": "0:7e0fb71e6f1460aad952dcba695fa728df18701e6b0d3142af7a5151dccb9a68",
+      "value": "1",
+      "extraCurrencies": {},
+      "bounce": false,
+      "bounced": false,
+      "fwdFee": "82135",
+      "extraFlags": "0",
+      "createdLt": "108207715000017",
+      "createdAt": 1791300469,
+      "op": 1935855772,
+      "queryId": "0",
+      "comment": null,
+      "body": {
+        "kind": "jetton-transfer-notification",
+        "queryId": "0",
+        "amount": "70310292",
+        "sender": "0:c8f687640cee50646992f0be785838fe045e066ce89486e41e658d41dd8eb07b",
+        "forwardPayload": {
+          "kind": "text-comment",
+          "text": "Cross-chain swap withdrawal"
+        }
+      }
+    },
+    "outMessages": [],
+    "totalFees": "0",
+    "valueIn": "1",
+    "valueOut": "0"
+  },
+  "replay": false
+}

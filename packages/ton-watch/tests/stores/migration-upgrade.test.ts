@@ -184,7 +184,7 @@ describe.each(dbTargets)("upgrading released schemas ($name)", (target) => {
           (e: unknown) => e,
         );
         expect(error).toBeInstanceOf(MigrationError);
-        expect((error as MigrationError).code).toBe("too_new");
+        expect((error as MigrationError).code).toBe("MIGRATION_TOO_NEW");
       }
     },
   );

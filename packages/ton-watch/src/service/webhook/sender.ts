@@ -1,15 +1,14 @@
 import type { TxHandler } from "../../consumer/types";
 import { errorMessage } from "../../core/errors";
+import { VERSION } from "../../version";
+import { EVENT_HEADER, IDEMPOTENCY_HEADER, REPLAY_HEADER } from "../../webhook/headers";
 import type { WebhookTarget } from "./config";
-import { deliveryId, webhookPayload } from "./payload";
+import { webhookPayload } from "./payload";
 import { SIGNATURE_HEADER, signatureHeader } from "./signature";
-
-/** Request header marking a replayed dead letter; its value is `1`. */
-export const REPLAY_HEADER = "ton-watch-replay";
 
 /** Longest piece of a failed response body quoted in the error. */
 const MAX_ERROR_BODY_CHARS = 200;
-const USER_AGENT = "ton-watch-webhook";
+const USER_AGENT = `ton-watch/${VERSION}`;
 
 /**
  * A request that did not get a 2xx. `retryable` failures (network errors,
@@ -35,8 +34,6 @@ export function isRetryableStatus(status: number): boolean {
 }
 
 export interface SenderOptions {
-  /** Format friendly addresses for testnet. */
-  testOnly: boolean;
   /** For tests. Default the global `fetch`. */
   fetch?: typeof fetch;
 }
@@ -46,22 +43,22 @@ export interface SenderOptions {
  * receiver answered 2xx. Anything else throws a `WebhookError`, which the
  * consumer retries with backoff or gives up on, as `target.onError` says.
  */
-export function webhookHandler(target: WebhookTarget, options: SenderOptions): TxHandler {
+export function webhookHandler(target: WebhookTarget, options: SenderOptions = {}): TxHandler {
   const send = options.fetch ?? fetch;
   return async (tx, { replay }) => {
-    const body = JSON.stringify(
-      webhookPayload(tx, { webhook: target.name, testOnly: options.testOnly, replay }),
-    );
+    const payload = webhookPayload(tx, { webhook: target.name, replay });
+    const body = JSON.stringify(payload);
     const headers: Record<string, string> = {
       "content-type": "application/json",
       "user-agent": USER_AGENT,
-      "idempotency-key": deliveryId(tx),
+      [IDEMPOTENCY_HEADER]: payload.id,
+      [EVENT_HEADER]: payload.type,
     };
     if (replay) headers[REPLAY_HEADER] = "1";
-    if (target.secret !== null) {
+    if (target.secrets.length > 0) {
       // Signed per attempt, so a retry carries a fresh timestamp.
       headers[SIGNATURE_HEADER] = signatureHeader(
-        target.secret,
+        target.secrets,
         body,
         Math.floor(Date.now() / 1000),
       );

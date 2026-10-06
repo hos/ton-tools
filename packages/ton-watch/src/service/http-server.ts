@@ -2,28 +2,20 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 
 import { errorMessage } from "../core/errors";
 import type { Logger } from "../util/logger";
+import { type ConsumersResponse, type HealthResponse, type StatusResponse, toJson } from "./output";
 
 const PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4";
 
-/** JSON with bigints written as decimal strings. */
-export function toJson(value: unknown): string {
-  return JSON.stringify(
-    value,
-    (_, field) => (typeof field === "bigint" ? field.toString() : field),
-    2,
-  );
-}
-
-/** What the HTTP server reports; one per service mode. */
+/** What the HTTP server reports; one per service mode. Shapes are in `output.ts`. */
 export interface ServiceProbe {
   /** Prometheus text. */
   metrics(): string;
   /** Served on `/health`; `down` answers 503. */
-  health(): { status: "ok" | "degraded" | "down" };
-  /** Served on `/status`. */
-  status(): unknown;
+  health(): HealthResponse;
+  /** Served on `/status` (unstable). */
+  status(): StatusResponse;
   /** Served on `/consumers`: every consumer in the database, read-only. */
-  consumers(): Promise<unknown>;
+  consumers(): Promise<ConsumersResponse>;
 }
 
 /** Methods the server answers; any other gets 405. HEAD is GET without the body. */

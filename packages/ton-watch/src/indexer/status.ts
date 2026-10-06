@@ -39,7 +39,11 @@ export function addressStatus(
   };
 }
 
-/** Publishes indexer-wide gauges and, if `perAddress`, per-address lag and gap gauges. */
+/**
+ * Publishes indexer-wide gauges and, if `perAddress`, per-address lag and gap
+ * gauges. Per-address series are rebuilt each time, so a removed address loses
+ * its series and an address whose lag is unknown has no lag series.
+ */
 export function recordGauges(
   metrics: Metrics,
   statuses: AddressStatus[],
@@ -49,6 +53,8 @@ export function recordGauges(
   metrics.set("ton_watch_addresses", statuses.length);
   metrics.set("ton_watch_walks", walks.length);
   metrics.set("ton_watch_walks_stuck", walks.filter(isParked).length);
+  metrics.remove("ton_watch_address_lag_seconds");
+  metrics.remove("ton_watch_address_gaps_open");
   let gapsOpen = 0;
   let maxLagSeconds = 0;
   for (const status of statuses) {
@@ -56,7 +62,9 @@ export function recordGauges(
     if (status.lagSeconds != null) maxLagSeconds = Math.max(maxLagSeconds, status.lagSeconds);
     if (perAddress) {
       const labels = { address: status.address };
-      metrics.set("ton_watch_address_lag_seconds", status.lagSeconds ?? -1, labels);
+      if (status.lagSeconds != null) {
+        metrics.set("ton_watch_address_lag_seconds", status.lagSeconds, labels);
+      }
       metrics.set("ton_watch_address_gaps_open", status.gapsOpen, labels);
     }
   }

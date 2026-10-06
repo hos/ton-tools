@@ -7,6 +7,9 @@ import type { TxId, TxRecord } from "../core/types";
  * newest first, starting at this one" — and checks every page the same way, so a
  * history source can make fetching faster or reach further back, but cannot change
  * what gets stored.
+ *
+ * @experimental Methods may be added in minor 0.x versions. Exported from
+ * `ton-watch/advanced`.
  */
 export interface HistorySource {
   readonly name: string;

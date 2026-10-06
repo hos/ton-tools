@@ -38,8 +38,8 @@ export const migrations: readonly Migration[] = Object.freeze([
     version: 1,
     name: "initial",
     up: [
-      // Addresses are raw (`<workchain>:<hex>`, as `toRawAddress` writes them). Hex case is
-      // kept as given: the store treats addresses as opaque keys.
+      // Addresses are canonical raw (`<workchain>:<hex>`, lowercase hex, no leading zeros
+      // in the workchain), exactly as `toRawAddress` writes them: one address, one row.
       `create table $S.addresses (
         id bigint generated always as identity primary key,
         address text not null,
@@ -52,7 +52,7 @@ export const migrations: readonly Migration[] = Object.freeze([
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now(),
         constraint addresses_address_key unique (address),
-        constraint addresses_address_check check (address ~ '^-?[0-9]{1,10}:[0-9a-fA-F]{64}$'),
+        constraint addresses_address_check check (address ~ '^(0|-?[1-9][0-9]{0,9}):[0-9a-f]{64}$'),
         constraint addresses_start_lt_check check (start_lt >= 0),
         constraint addresses_synced_lt_check check (synced_lt >= 0),
         constraint addresses_frontier_check check ((frontier_lt is null) = (frontier_hash is null)),

@@ -19,7 +19,12 @@ import { sleep } from "../../util/async";
 import { silentLogger } from "../../util/logger";
 import type { BlockRef, ChainTip, ShardTop, TxSource } from "../source";
 import { lastTxFromStateProof } from "./account-proof";
-import { type PoolMember, ServerPool, type ServerPoolOptions } from "./server-pool";
+import {
+  type PoolMember,
+  ServerPool,
+  type ServerPoolOptions,
+  type ServerStats,
+} from "./server-pool";
 import { MASTERCHAIN_SHARD, parseShardTops, shardContains } from "./shards";
 
 export interface LiteSourceOptions extends ServerPoolOptions {
@@ -69,11 +74,22 @@ const ListMode = {
 } as const;
 const LIST_IDS = ListMode.account | ListMode.lt | ListMode.hash;
 
+/** The pool behind each `LiteSource`, for `serverPoolOf`. */
+const pools = new WeakMap<LiteSource, ServerPool<LiteClient>>();
+
+/**
+ * The server pool of a `LiteSource`. Internal: for tests and benchmarks that make
+ * raw liteserver calls through the same rotation; not part of the public API.
+ */
+export function serverPoolOf(source: LiteSource): ServerPool<LiteClient> {
+  return pools.get(source)!;
+}
+
 /** Liteserver-backed `TxSource` with rotation, rate-limit backoff and archival fallback. */
 export class LiteSource implements TxSource {
-  readonly maxPageSize = LITESERVER_MAX_PAGE_SIZE;
-  readonly pool: ServerPool<LiteClient>;
+  readonly maxPageSize: number = LITESERVER_MAX_PAGE_SIZE;
   readonly metrics: Metrics;
+  private readonly pool: ServerPool<LiteClient>;
   private readonly engines: LiteSingleEngine[];
   private readonly maxBlocksPerTick: number;
   private readonly maxProbeBlocks: number;
@@ -87,6 +103,7 @@ export class LiteSource implements TxSource {
   ) {
     this.metrics = options.metrics ?? new Metrics();
     this.pool = new ServerPool(members, { ...options, metrics: this.metrics });
+    pools.set(this, this.pool);
     this.engines = engines;
     this.maxBlocksPerTick = options.maxBlocksPerTick ?? DEFAULT_MAX_BLOCKS_PER_TICK;
     this.maxProbeBlocks = options.maxProbeBlocks ?? DEFAULT_MAX_PROBE_BLOCKS;
@@ -136,6 +153,11 @@ export class LiteSource implements TxSource {
       throw new SourceError("network", "no liteserver could be reached");
     }
     return new LiteSource(members, engines, options);
+  }
+
+  /** Load, latency and errors of every liteserver, for status pages. */
+  stats(): ServerStats[] {
+    return this.pool.stats();
   }
 
   async getTip(): Promise<ChainTip> {

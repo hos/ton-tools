@@ -4,10 +4,10 @@ import { toRawAddress } from "../core/address";
 import type { DetectMode } from "../indexer/options";
 import type { AddAddressOptions } from "../ton-watch";
 import { isLogLevel, type LogLevel } from "../util/logger";
-import { type Env, integerInRange, oneOf, withoutEmpty } from "./env";
+import { boolean, type Env, integerInRange, oneOf, withoutEmpty } from "./env";
 import { type WebhookTarget, webhooksFromEnv } from "./webhook/config";
 
-/** Service configuration, read from the environment (see `bin/ton-watch.ts`). */
+/** Service configuration, read from the environment (every variable is listed in `ENV_VARS`). */
 export interface ServiceConfig {
   databaseUrl: string;
   /** Postgres schema; the store's default when unset. */
@@ -21,6 +21,8 @@ export interface ServiceConfig {
   concurrency: number;
   detect: DetectMode;
   logLevel: LogLevel;
+  /** Export per-address gauges (the indexer's `addressMetrics`). */
+  addressMetrics: boolean;
   history: ToncenterConfig | null;
   /** Webhook targets, each delivered by its own consumer; empty when none are configured. */
   webhooks: WebhookTarget[];
@@ -41,12 +43,13 @@ const MAX_PORT = 65_535;
 
 export function configFromEnv(rawEnv: Env): ServiceConfig {
   const env = withoutEmpty(rawEnv);
-  if (!env.DATABASE_URL) throw new Error("DATABASE_URL is required");
+  const databaseUrl = env.TON_WATCH_DATABASE_URL ?? env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("TON_WATCH_DATABASE_URL (or DATABASE_URL) is required");
   return {
-    databaseUrl: env.DATABASE_URL,
+    databaseUrl,
     schema: env.TON_WATCH_SCHEMA,
-    network: (env.TON_NETWORK ?? env.TON_NETWORK_CONFIG_URL ?? "mainnet") as ServerDefinition,
-    archiveNetwork: env.TON_ARCHIVE_CONFIG as ServerDefinition | undefined,
+    network: (env.TON_WATCH_NETWORK ?? "mainnet") as ServerDefinition,
+    archiveNetwork: env.TON_WATCH_ARCHIVE_NETWORK as ServerDefinition | undefined,
     addresses: parseAddressList(env.TON_WATCH_ADDRESSES ?? ""),
     port: integerInRange("TON_WATCH_PORT", env.TON_WATCH_PORT, DEFAULT_PORT, 0, MAX_PORT),
     concurrency: integerInRange(
@@ -58,6 +61,7 @@ export function configFromEnv(rawEnv: Env): ServiceConfig {
     ),
     detect: oneOf("TON_WATCH_DETECT", env.TON_WATCH_DETECT ?? "auto", DETECT_MODES),
     logLevel: logLevelFromEnv(env),
+    addressMetrics: boolean("TON_WATCH_ADDRESS_METRICS", env.TON_WATCH_ADDRESS_METRICS, false),
     history: historyFromEnv(env),
     webhooks: webhooksFromEnv(env),
   };
@@ -69,8 +73,8 @@ function historyFromEnv(env: Env): ToncenterConfig | null {
   oneOf("TON_WATCH_HISTORY", env.TON_WATCH_HISTORY, HISTORY_SOURCES);
   return {
     mode: oneOf("TON_WATCH_HISTORY_MODE", env.TON_WATCH_HISTORY_MODE ?? "fallback", HISTORY_MODES),
-    apiKey: env.TONCENTER_API_KEY,
-    endpoint: env.TONCENTER_ENDPOINT,
+    apiKey: env.TON_WATCH_TONCENTER_API_KEY,
+    endpoint: env.TON_WATCH_TONCENTER_ENDPOINT,
   };
 }
 
@@ -80,16 +84,16 @@ export function logLevelFromEnv(env: Env): LogLevel {
   return level;
 }
 
-/** `now`, `genesis` or an lt, as given to `add --from` and in `TON_WATCH_ADDRESSES`. */
+/** `now`, `earliest` or an lt, as given to `add --from` and in `TON_WATCH_ADDRESSES`. */
 export function parseFrom(value: string | undefined): AddAddressOptions["from"] {
   if (!value || value === "now") return "now";
-  if (value === "genesis") return "genesis";
+  if (value === "earliest") return "earliest";
   if (/^\d+$/.test(value)) return BigInt(value);
-  throw new Error(`invalid --from value: ${value} (now | genesis | <lt>)`);
+  throw new Error(`invalid --from value: ${value} (now | earliest | <lt>)`);
 }
 
 /**
- * `addr1,addr2@genesis,addr3@<lt>`: comma-separated, each optionally `@<from>`.
+ * `addr1,addr2@earliest,addr3@<lt>`: comma-separated, each optionally `@<from>`.
  * Addresses are validated here and returned raw.
  */
 function parseAddressList(list: string): ServiceConfig["addresses"] {

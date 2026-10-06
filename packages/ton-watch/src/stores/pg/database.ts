@@ -1,6 +1,11 @@
 import type { Pool, PoolClient } from "pg";
 
-/** Anything that can run a parameterized query: `pg.Pool`, `pg.PoolClient`, PGlite. */
+import { TonWatchError } from "../../core/errors";
+
+/**
+ * Anything that can run a parameterized query: `pg.Pool`, `pg.PoolClient`, PGlite.
+ * What consumer handlers get as `ctx.db` with `PgStore`.
+ */
 export interface PgQueryable {
   query(text: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 }
@@ -59,7 +64,8 @@ export function poolDatabase(pool: Pool): PgDatabase {
       const max = pool.options?.max ?? DEFAULT_POOL_MAX;
       const open = openSessions.get(pool) ?? 0;
       if (open + 1 >= max) {
-        throw new Error(
+        throw new TonWatchError(
+          "PG_POOL_TOO_SMALL",
           `pg Pool too small: ${open + 1} dedicated connection(s) (one per running consumer) ` +
             `would leave none of its ${max} for queries. Raise the pool's max to at least ` +
             `the number of consumers plus the connections your handlers and the indexer use at once.`,

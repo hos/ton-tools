@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "type": "transaction",
+  "id": "0:852443f8599fe6a5da34fe43049ac4e0beb3071bb2bfb56635ea9421287c283a:108207748000020:47c766d5144f24f6945222f2885aa5038dae580b4c8bddaae0de58734236e8bc",
+  "webhook": "default",
+  "address": "0:852443f8599fe6a5da34fe43049ac4e0beb3071bb2bfb56635ea9421287c283a",
+  "lt": "108207748000020",
+  "hash": "47c766d5144f24f6945222f2885aa5038dae580b4c8bddaae0de58734236e8bc",
+  "utime": 1791300482,
+  "prev": {
+    "lt": "108207746000012",
+    "hash": "56fe46f45ef8a234d2055fdc2257c84d1974d57c65b2dd0c7118440f704b4f40"
+  },
+  "boc": "te6ccgECBwEAAbYAA7N4UkQ/hZn+al2jT+QwSaxOC+swcbsr+1ZjXqlCEofCg6AABiahRhqRRW/kb0XviiNNIFX9wiV8hNGXTVfGWy3QxxGEQPcEtPQAAAYmoUQySMasUTggABRSyKgBAwQBAaACAPtIAXYmAHWC9YRANOJJbjA6dhkL+KnkqXjBhdVmMxAAj/jJACFJEP4WZ/mpdo0/kMEmsTgvrMHG7K/tWY16pQhKHwoOkOWAcQAFWzwAAMTUKMNSJtWKJwQAAAAAGJgYECoytjKzuTC2kCm6MLk5kAUFKTKzEaq1uhgmLSSlIMAAgnJfzuXxBrF3NQpI3JDIqQ2iVaWShGzJastXXFZt9XInQ6v8IQMSs9MLwbjSfug1hiI4DnU+KBiuPvj4GcXdv7zbAhUMQEkOWAcQGFLIkQUGAJ5ASCw9CQAAAAAAAAAAAA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFvAAAAAAAAAAAAAAAABLUUtpEnlC4z33SeGHxRhIq/htUa7i3D8ghbwxhQTn44E",
+  "parsed": {
+    "type": "generic",
+    "success": true,
+    "aborted": false,
+    "compute": {
+      "type": "vm",
+      "success": true,
+      "exitCode": 0,
+      "gasUsed": "577"
+    },
+    "action": {
+      "success": true,
+      "resultCode": 0,
+      "totalActions": 0,
+      "skippedActions": 0
+    },
+    "receivedBounce": false,
+    "bouncedBack": false,
+    "direction": "incoming",
+    "inMessage": {
+      "type": "internal",
+      "src": "0:bb13003ac17ac2201a7124b7181d3b0c85fc54f254bc60c2eab319880047fc64",
+      "dest": "0:852443f8599fe6a5da34fe43049ac4e0beb3071bb2bfb56635ea9421287c283a",
+      "value": "962600000",
+      "extraCurrencies": {},
+      "bounce": false,
+      "bounced": false,
+      "fwdFee": "44446",
+      "extraFlags": "0",
+      "createdLt": "108207748000019",
+      "createdAt": 1791300482,
+      "op": 0,
+      "queryId": null,
+      "comment": "100 Telegram Stars \n\nRef#Ukt0LZIJA",
+      "body": {
+        "kind": "text-comment",
+        "text": "100 Telegram Stars \n\nRef#Ukt0LZIJA"
+      }
+    },
+    "outMessages": [],
+    "totalFees": "38469",
+    "valueIn": "962600000",
+    "valueOut": "0"
+  },
+  "replay": false
+}

@@ -2,27 +2,11 @@ import { Consumer } from "../consumer/consumer";
 import { rewindCursors } from "../consumer/cursors";
 import { measureLag } from "../consumer/lag";
 import { withConsumerLock } from "../consumer/lock";
-import type { ConsumerOrder, DeadLetter } from "../stores/consumer-state";
 import type { Store } from "../stores/store";
 import type { Logger } from "../util/logger";
 import type { ConsumerCommand } from "./commands";
-import { toJson } from "./http-server";
+import { type ConsumerSummary, consumersResponse, deadLettersResponse, toJson } from "./output";
 import type { WebhookConsumerSpec } from "./webhook/consumers";
-
-/** One consumer as `ton-watch consumers` and `/consumers` report it. */
-export interface ConsumerSummary {
-  name: string;
-  /** Order it last ran with; null if unknown. */
-  order: ConsumerOrder | null;
-  createdAt: Date | null;
-  /** Addresses it has a cursor on. */
-  addresses: number;
-  /** Addresses whose next transaction has failed at least once. */
-  failing: number;
-  /** Its backlog (see `ConsumerLag`), without the per-address breakdown. */
-  lag: { transactions: number; lt: bigint; seconds: number };
-  deadLetters: number;
-}
 
 /** Every consumer the store knows, with its lag and dead-letter count. */
 export async function consumerSummaries(store: Store): Promise<ConsumerSummary[]> {
@@ -69,11 +53,11 @@ export async function runConsumerCommand(
 ): Promise<void> {
   switch (command.name) {
     case "consumers":
-      console.log(toJson(await consumerSummaries(store)));
+      console.log(toJson(consumersResponse(await consumerSummaries(store))));
       return;
     case "dead-letters": {
       const letters = await store.listDeadLetters({ consumer: command.consumer });
-      console.log(toJson(letters.map(deadLetterJson)));
+      console.log(toJson(deadLettersResponse(letters)));
       return;
     }
     case "rewind": {
@@ -135,9 +119,4 @@ async function assertKnown(store: Store, name: string): Promise<void> {
   if (!consumers.some((consumer) => consumer.name === name)) {
     throw new Error(`unknown consumer ${name}`);
   }
-}
-
-/** A dead letter with its hash in hex, for JSON output. */
-function deadLetterJson(letter: DeadLetter) {
-  return { ...letter, hash: letter.hash.toString("hex") };
 }

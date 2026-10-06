@@ -103,7 +103,10 @@ describe("recordGauges", () => {
     expect(metrics.get("ton_watch_gaps_open")).toBe(5);
     expect(metrics.get("ton_watch_max_lag_seconds")).toBe(30);
     expect(metrics.get("ton_watch_address_lag_seconds", { address: A })).toBe(30);
-    expect(metrics.get("ton_watch_address_lag_seconds", { address: B })).toBe(-1);
+    // B's lag is unknown: its series is omitted, not a sentinel.
+    expect(Object.keys(metrics.snapshot())).not.toContain(
+      `ton_watch_address_lag_seconds{address="${B}"}`,
+    );
     expect(metrics.get("ton_watch_address_gaps_open", { address: B })).toBe(3);
   });
 
@@ -134,7 +137,14 @@ async function setup(perAccount: number, addresses = [A, B]) {
     synced: [],
     fetchError: [],
   };
-  const indexer = new Indexer({ store, source, detect: "poll", retryMinMs: 1, retryMaxMs: 2 });
+  const indexer = new Indexer({
+    store,
+    source,
+    detect: "poll",
+    retryMinMs: 1,
+    retryMaxMs: 2,
+    addressMetrics: true,
+  });
   indexer.on("tick", (...args) => events.tick!.push(args));
   indexer.on("frontier", (...args) => events.frontier!.push(args));
   indexer.on("synced", (...args) => events.synced!.push(args));

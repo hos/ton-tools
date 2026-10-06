@@ -25,10 +25,10 @@ export const USAGE: Record<Command["name"], string> = {
   run: "ton-watch [run]",
   deliver: "ton-watch deliver",
   list: "ton-watch list",
-  add: "ton-watch add <address> [--from now|genesis|<lt>]",
+  add: "ton-watch add <address> [--from now|earliest|<lt>]",
   remove: "ton-watch remove <address> [--purge]",
   consumers: "ton-watch consumers",
-  rewind: "ton-watch rewind <consumer> <start|now|lt> [--address <address>]...",
+  rewind: "ton-watch rewind <consumer> <earliest|now|lt> [--address <address>]...",
   "dead-letters": "ton-watch dead-letters [<consumer>]",
   replay: "ton-watch replay <consumer> <address> <lt>",
   discard: "ton-watch discard <consumer> <address> <lt>",
@@ -166,7 +166,7 @@ function parseLt(value: string | undefined): bigint {
 }
 
 function parseRewindTarget(value: string | undefined): RewindTarget {
-  if (value === "start" || value === "now") return value;
+  if (value === "earliest" || value === "now") return value;
   if (value !== undefined && /^\d+$/.test(value)) return BigInt(value);
-  throw new Error(`invalid rewind target: ${value} (start | now | <lt>)`);
+  throw new Error(`invalid rewind target: ${value} (earliest | now | <lt>)`);
 }

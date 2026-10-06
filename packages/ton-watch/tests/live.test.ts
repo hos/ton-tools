@@ -7,13 +7,12 @@
  * chain is complete and every (lt, hash) matches toncenter.
  */
 import { describe, expect, test } from "bun:test";
-
+import { toRawAddress as toRaw } from "../src/core/address";
 import { analyzeChain } from "../src/core/chain";
 import { Indexer } from "../src/indexer/indexer";
 import { ToncenterHistory } from "../src/plugins/toncenter";
 import { LiteSource } from "../src/source/liteserver/lite-source";
 import { MemoryStore } from "../src/stores/memory/memory-store";
-import { toRaw } from "../src/ton-watch";
 
 const LIVE = process.env.LIVE === "1";
 // STON.fi v1 router: thousands of transactions a day.

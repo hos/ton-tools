@@ -23,17 +23,17 @@ await pool.query(`create table if not exists payments (
   utime integer)`);
 
 for (const address of process.argv.slice(2)) {
-  // "now": only what happens from here on. Use { from: "genesis" } for full history.
+  // "now": only what happens from here on. Use { from: "earliest" } for full history.
   await watch.addAddress(address, { from: "now" });
 }
 
 watch.process("payments", async (tx, ctx) => {
   const payment = incomingPayment(tx);
   if (!payment || !isPlainTransfer(payment)) return;
-  // ctx.db is the transaction the consumer cursor is committed in: this insert and
-  // the cursor commit together, so a crash never records a payment twice or loses one.
-  const db = ctx.db as Pool;
-  await db.query(`insert into payments values ($1, $2, $3, $4, $5, $6)`, [
+  // ctx.db (a PgQueryable, as the store is a PgStore) is the transaction the consumer
+  // cursor is committed in: this insert and the cursor commit together, so a crash
+  // never records a payment twice or loses one. Always set for a transactional consumer.
+  await ctx.db!.query(`insert into payments values ($1, $2, $3, $4, $5, $6)`, [
     tx.hash,
     tx.address,
     payment.sender.toString(),
@@ -49,4 +49,4 @@ function isPlainTransfer(payment: IncomingPayment): boolean {
 }
 
 await watch.start();
-process.on("SIGINT", () => void watch.stop().then(() => process.exit(0)));
+process.on("SIGINT", () => void watch.close().then(() => process.exit(0)));

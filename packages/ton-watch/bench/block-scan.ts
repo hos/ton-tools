@@ -12,7 +12,7 @@ import { Address, Cell } from "@ton/core";
 import { Functions, type liteServer_allShardsInfo } from "ton-lite-client/dist/schema";
 
 import { Metrics } from "../src/metrics/metrics";
-import { LiteSource } from "../src/source/liteserver/lite-source";
+import { LiteSource, serverPoolOf } from "../src/source/liteserver/lite-source";
 import { parseShardTops } from "../src/source/liteserver/shards";
 import { arg, fmt, loadResult, saveResult, toncenter } from "./lib";
 
@@ -41,7 +41,7 @@ for (const size of sizes) {
   );
   const metrics = new Metrics();
   const source = await LiteSource.connect({ metrics, maxInFlightPerServer: 4 });
-  const pool = source.pool;
+  const pool = serverPoolOf(source);
   const lastSeqno = (await source.getTip()).seqno;
 
   const shardsAt = async (seqno: number) => {

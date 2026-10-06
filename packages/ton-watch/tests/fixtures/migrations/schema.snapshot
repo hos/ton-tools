@@ -9,7 +9,7 @@ table addresses
   column synced_utime bigint
   column created_at timestamp with time zone not null default now()
   column updated_at timestamp with time zone not null default now()
-  constraint addresses_address_check CHECK ((address ~ '^-?[0-9]{1,10}:[0-9a-fA-F]{64}$'::text))
+  constraint addresses_address_check CHECK ((address ~ '^(0|-?[1-9][0-9]{0,9}):[0-9a-f]{64}$'::text))
   constraint addresses_address_key UNIQUE (address)
   constraint addresses_frontier_check CHECK (((frontier_lt IS NULL) = (frontier_hash IS NULL)))
   constraint addresses_frontier_hash_check CHECK ((octet_length(frontier_hash) = 32))

@@ -24,9 +24,8 @@ export interface SplitOptions {
   maxParts?: number;
 }
 
-export interface IndexerOptions {
-  store: Store;
-  source: TxSource;
+/** Indexing tuning, shared by `TonWatchOptions` and `IndexerOptions`. */
+export interface IndexingOptions {
   /** Pages fetched in parallel across all addresses and ranges. Default 16. */
   concurrency?: number;
   /** How often to look at the chain tip. Default 1000ms. */
@@ -54,8 +53,21 @@ export interface IndexerOptions {
   split?: SplitOptions | false;
   /** Optional history plug-in (see `HistorySource`), e.g. `ton-watch/toncenter`. */
   history?: HistoryOptions;
-  /** Export per-address gauges (lag, gaps). Default true. */
+  /**
+   * Export per-address gauges (`ton_watch_address_lag_seconds`,
+   * `ton_watch_address_gaps_open`), one series per address. Default false: with
+   * many addresses they multiply the series a Prometheus server has to keep.
+   */
   addressMetrics?: boolean;
+}
+
+/**
+ * Options of a standalone `Indexer` (`ton-watch/advanced`).
+ * @experimental
+ */
+export interface IndexerOptions<Db = unknown> extends IndexingOptions {
+  store: Store<Db>;
+  source: TxSource;
   metrics?: Metrics;
   logger?: Logger;
 }
@@ -86,7 +98,7 @@ export const DEFAULT_SETTINGS: IndexerSettings = {
   retryMinMs: 1_000,
   retryMaxMs: 60_000,
   archiveRetryMs: 600_000,
-  addressMetrics: true,
+  addressMetrics: false,
 };
 
 export const DEFAULT_SPLIT: Required<SplitOptions> = {
@@ -96,7 +108,7 @@ export const DEFAULT_SPLIT: Required<SplitOptions> = {
 };
 
 /** Tuning values with defaults applied. Throws on a `concurrency` that would start no work. */
-export function resolveSettings(options: IndexerOptions): IndexerSettings {
+export function resolveSettings(options: IndexingOptions): IndexerSettings {
   const settings: IndexerSettings = {
     concurrency: options.concurrency ?? DEFAULT_SETTINGS.concurrency,
     tickMs: options.tickMs ?? DEFAULT_SETTINGS.tickMs,
@@ -115,7 +127,7 @@ export function resolveSettings(options: IndexerOptions): IndexerSettings {
 }
 
 /** Split settings, or null when splitting is off or the source cannot find split points. */
-export function resolveSplit(options: IndexerOptions): Required<SplitOptions> | null {
+export function resolveSplit(options: IndexerOptions<unknown>): Required<SplitOptions> | null {
   if (options.split === false || !options.source.findTxNear) return null;
   return {
     minTxs: options.split?.minTxs ?? DEFAULT_SPLIT.minTxs,
@@ -125,7 +137,7 @@ export function resolveSplit(options: IndexerOptions): Required<SplitOptions> | 
 }
 
 /** History plug-in settings, or null when none is configured or it is switched off. */
-export function resolveHistory(options: IndexerOptions): Required<HistoryOptions> | null {
+export function resolveHistory(options: IndexingOptions): Required<HistoryOptions> | null {
   if (!options.history || options.history.enabled === false) return null;
   return { mode: "fallback", enabled: true, ...options.history };
 }

@@ -9,11 +9,11 @@ import type { Server } from "bun";
 import { ConsumerLockedError } from "../../../src/consumer/errors";
 import type { TxRecord } from "../../../src/core/types";
 import { main } from "../../../src/service/cli";
-import type { WebhookPayload } from "../../../src/service/webhook/payload";
 import { verifySignature } from "../../../src/service/webhook/signature";
 import { PgStore } from "../../../src/stores/pg/pg-store";
 import { TonWatch } from "../../../src/ton-watch";
 import { silentLogger } from "../../../src/util/logger";
+import type { WebhookPayload } from "../../../src/webhook";
 import { FakeSource, fakeAddress } from "../../fixtures/fake-chain";
 import { type ServiceHarness, setupService, until } from "../harness";
 
@@ -80,7 +80,7 @@ afterEach(async () => {
 });
 
 const env = (extra: Record<string, string> = {}) => ({
-  DATABASE_URL: "postgres://test/db",
+  TON_WATCH_DATABASE_URL: "postgres://test/db",
   TON_WATCH_LOG: "silent",
   TON_WATCH_PORT: "0",
   TON_WATCH_WEBHOOK_SECRET: SECRET,
@@ -90,7 +90,7 @@ const env = (extra: Record<string, string> = {}) => ({
 });
 
 /**
- * Indexes `addresses` from genesis, as a separate indexer process would, until
+ * Indexes `addresses` from the earliest transaction, as a separate indexer process would, until
  * every one is complete up to the newest transaction among them (so global order
  * can release all of them).
  */
@@ -102,13 +102,13 @@ async function indexAll(addresses: string[]) {
     maxIdlePollMs: 0,
     logger: silentLogger,
   });
-  for (const address of addresses) await watch.addAddress(address, { from: "genesis" });
+  for (const address of addresses) await watch.addAddress(address, { from: "earliest" });
   await watch.start();
   const newest = addresses
     .map((address) => h.chain.txs(address).at(-1)?.lt ?? 0n)
     .reduce((max, lt) => (lt > max ? lt : max));
   await until(async () => ((await watch.watermark(addresses)) ?? -1n) >= newest);
-  await watch.stop({ closeSource: false, closeStore: false });
+  await watch.stop();
 }
 
 const idOf = (tx: TxRecord) => `${tx.address}:${tx.lt}:${tx.hash.toString("hex")}`;
@@ -131,7 +131,7 @@ describe("ton-watch run with a webhook", () => {
     h.chain.grow([A], 6);
     receiver = startReceiver();
     const runEnv = env({
-      TON_WATCH_ADDRESSES: `${A}@genesis`,
+      TON_WATCH_ADDRESSES: `${A}@earliest`,
       TON_WATCH_WEBHOOK_URL: `${receiver.url}/hook`,
     });
     await startService("run", runEnv);
@@ -150,8 +150,10 @@ describe("ton-watch run with a webhook", () => {
     );
     const [first, second] = requests;
     expect(first!.payload).toMatchObject({
+      version: 1,
+      type: "transaction",
       webhook: "default",
-      address: { raw: A, friendly: Address.parse(A).toString() },
+      address: A,
       prev: null,
     });
     expect(second!.payload.prev?.lt).toBe(first!.payload.lt);
@@ -206,19 +208,19 @@ describe("ton-watch deliver", () => {
     );
     await until(
       () =>
-        receiver!.accepted().filter((r) => r.payload.address.raw === B).length === 4 &&
+        receiver!.accepted().filter((r) => r.payload.address === B).length === 4 &&
         receiver!.requests.filter((r) => r.id === rejected).length >= 3,
     );
     const acceptedA = () =>
       receiver!
         .accepted()
-        .filter((r) => r.payload.address.raw === A)
+        .filter((r) => r.payload.address === A)
         .map((r) => r.id);
     expect(acceptedA()).toEqual(idsOf(A).slice(0, 1));
 
     const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
     expect(health.status).toBe("degraded");
-    expect(health.reasons.join()).toContain("webhook:default retrying");
+    expect(health.reasons.join()).toContain("webhook:default: retrying");
     const status = await (await fetch(`http://127.0.0.1:${port}/status`)).json();
     const laneA = status.webhooks[0].addresses.find(
       (lane: { address: string }) => lane.address === A,
@@ -254,11 +256,11 @@ describe("ton-watch deliver", () => {
     expect(receiver.accepted("/a").map((r) => r.id)).toEqual(idsOf(A));
     const global = receiver.accepted("/all").map((r) => r.payload);
     const sorted = [...global].sort(
-      (x, y) => Number(BigInt(x.lt) - BigInt(y.lt)) || x.address.raw.localeCompare(y.address.raw),
+      (x, y) => Number(BigInt(x.lt) - BigInt(y.lt)) || x.address.localeCompare(y.address),
     );
     expect(global).toEqual(sorted);
     expect(new Set(global.map((p) => p.webhook))).toEqual(new Set(["all"]));
-    expect(receiver.accepted("/other").every((r) => !r.signed && r.payload.address.raw === B)).toBe(
+    expect(receiver.accepted("/other").every((r) => !r.signed && r.payload.address === B)).toBe(
       true,
     );
     expect(receiver.accepted("/a").every((r) => r.signed)).toBe(true);
@@ -327,9 +329,10 @@ describe("webhook failure policy", () => {
     expect(letters[0]!.error).toContain("HTTP 422");
 
     const consumers = await (await fetch(`http://127.0.0.1:${port}/consumers`)).json();
-    expect(consumers).toMatchObject([
-      { name: "webhook:default", deadLetters: 2, lag: { transactions: 0 } },
-    ]);
+    expect(consumers).toMatchObject({
+      version: 1,
+      consumers: [{ name: "webhook:default", deadLetters: 2, lag: { transactions: 0 } }],
+    });
     await stopService();
 
     healed = true;

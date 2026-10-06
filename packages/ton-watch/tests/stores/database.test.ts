@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 import { poolDatabase } from "../../src/stores/pg/database";
 import { PgStore } from "../../src/stores/pg/pg-store";
 import { fakeAddress } from "../fixtures/fake-chain";
+import { pgDatabaseOf } from "../fixtures/store-targets";
 
 const A = fakeAddress(1);
 
@@ -180,7 +181,7 @@ describe("PgStore over a pg.Pool", () => {
   let n = 0;
   test("a Pool (no `transaction` method) is wrapped with poolDatabase", async () => {
     const store = new PgStore(pgliteAsPool(pglite), { schema: `pool_${n++}` });
-    expect(typeof store.db.transaction).toBe("function");
+    expect(typeof pgDatabaseOf(store).transaction).toBe("function");
     await store.migrate();
     await store.addAddress(A, { startLt: 0n });
     expect((await store.getAddress(A))?.active).toBe(true);

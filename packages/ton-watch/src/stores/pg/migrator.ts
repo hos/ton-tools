@@ -1,3 +1,4 @@
+import { TonWatchError } from "../../core/errors";
 import { SerialQueue, sleep } from "../../util/async";
 import type { PgDatabase, PgQueryable, PgSession } from "./database";
 import {
@@ -10,23 +11,18 @@ import {
 
 /**
  * Why `migrate()` refused to touch a schema:
- * - `modified`: an applied migration's statements differ from this code's (it was edited).
- * - `too_new`: a newer ton-watch applied migrations this code does not know and marked
- *   at least one of them incompatible with it. Upgrade ton-watch.
- * - `diverged`: the recorded history cannot be reconciled with this code's (a pre-release
- *   schema, an unknown or missing version below the newest applied one).
+ * - `MIGRATION_MODIFIED`: an applied migration's statements differ from this code's
+ *   (it was edited).
+ * - `MIGRATION_TOO_NEW`: a newer ton-watch applied migrations this code does not know
+ *   and marked at least one of them incompatible with it. Upgrade ton-watch.
+ * - `MIGRATION_DIVERGED`: the recorded history cannot be reconciled with this code's
+ *   (a pre-release schema, an unknown or missing version below the newest applied one).
  */
-export type MigrationErrorCode = "modified" | "too_new" | "diverged";
+export type MigrationErrorCode = "MIGRATION_MODIFIED" | "MIGRATION_TOO_NEW" | "MIGRATION_DIVERGED";
 
-export class MigrationError extends Error {
-  override readonly name = "MigrationError";
-
-  constructor(
-    readonly code: MigrationErrorCode,
-    message: string,
-  ) {
-    super(message);
-  }
+/** `migrate()` refused a schema and changed nothing; see `MigrationErrorCode`. */
+export class MigrationError extends TonWatchError<MigrationErrorCode> {
+  override name = "MigrationError";
 }
 
 /** What one `migrateSchema` call did. */
@@ -57,7 +53,7 @@ const CREATE_HISTORY = `create table if not exists $S.schema_migrations (
  * `create [unique] index concurrently if not exists <name> on …`, the one accepted
  * form of a concurrent index build (`<name>` unquoted, lowercase).
  */
-export const CONCURRENT_INDEX =
+export const CONCURRENT_INDEX: RegExp =
   /^\s*create\s+(?:unique\s+)?index\s+concurrently\s+if\s+not\s+exists\s+([a-z_][a-z0-9_]*)\s+on\s/i;
 
 /** Waits between attempts to take the migration lock. */
@@ -197,7 +193,7 @@ async function applyPending(
   )) as { column_name: string }[];
   if (columns.length > 0 && !columns.some((c) => c.column_name === "checksum")) {
     throw new MigrationError(
-      "diverged",
+      "MIGRATION_DIVERGED",
       `schema "${schema}" was created by a pre-release ton-watch (its schema_migrations has ` +
         `no checksum column) and cannot be upgraded; drop it or use another schema`,
     );
@@ -266,7 +262,7 @@ function plan(
     if (migration === undefined) {
       if (row.version < latest) {
         throw new MigrationError(
-          "diverged",
+          "MIGRATION_DIVERGED",
           `schema "${schema}" has migration ${row.version} (${row.name}) applied, ` +
             `which this ton-watch does not have`,
         );
@@ -277,7 +273,7 @@ function plan(
     const checksum = migrationChecksum(migration);
     if (row.checksum !== checksum) {
       throw new MigrationError(
-        "modified",
+        "MIGRATION_MODIFIED",
         `migration ${row.version} (${migration.name}) differs from the one applied to schema ` +
           `"${schema}" (checksum ${checksum.slice(0, 12)}…, applied ${row.checksum.slice(0, 12)}…). ` +
           `Released migrations must never be edited; add a new migration instead`,
@@ -290,7 +286,7 @@ function plan(
   const skipped = pending.find((m) => m.version < newestApplied);
   if (skipped) {
     throw new MigrationError(
-      "diverged",
+      "MIGRATION_DIVERGED",
       `migration ${skipped.version} (${skipped.name}) is not applied to schema "${schema}" ` +
         `but the later migration ${newestApplied} is; a migration must be numbered above ` +
         `every released one`,
@@ -300,7 +296,7 @@ function plan(
   const incompatible = newer.find((row) => Number(row.compatible_from) > latest);
   if (incompatible) {
     throw new MigrationError(
-      "too_new",
+      "MIGRATION_TOO_NEW",
       `schema "${schema}" was migrated to version ${newer.at(-1)!.version} by a newer ` +
         `ton-watch; this one knows versions up to ${latest}, and migration ` +
         `${incompatible.version} (${incompatible.name}) requires code of version ` +

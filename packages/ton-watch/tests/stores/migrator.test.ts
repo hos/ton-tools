@@ -196,7 +196,7 @@ describe.each(dbTargets)("migrateSchema ($name)", (target) => {
         ]),
       );
       expect(error).toBeInstanceOf(MigrationError);
-      expect((error as MigrationError).code).toBe("modified");
+      expect((error as MigrationError).code).toBe("MIGRATION_MODIFIED");
       expect((error as Error).message).toMatch(
         new RegExp(`migration ${NEXT} \\(test_${NEXT}\\) differs.*never be edited`),
       );
@@ -237,7 +237,7 @@ describe.each(dbTargets)("migrateSchema ($name)", (target) => {
       ]);
       const error = await rejection(new PgStore(db(), { schema }).migrate());
       expect(error).toBeInstanceOf(MigrationError);
-      expect((error as MigrationError).code).toBe("too_new");
+      expect((error as MigrationError).code).toBe("MIGRATION_TOO_NEW");
       expect((error as Error).message).toMatch(
         new RegExp(`version ${NEXT + 1} by a newer ton-watch.*up to ${LATEST}.*Upgrade ton-watch`),
       );
@@ -257,7 +257,7 @@ describe.each(dbTargets)("migrateSchema ($name)", (target) => {
       const error = await rejection(
         migrateSchema(db(), schema, [...migrations, { ...other, version: NEXT + 1 }]),
       );
-      expect((error as MigrationError).code).toBe("diverged");
+      expect((error as MigrationError).code).toBe("MIGRATION_DIVERGED");
     });
 
     test("a migration numbered below an applied one is refused (it would run out of order)", async () => {
@@ -267,7 +267,7 @@ describe.each(dbTargets)("migrateSchema ($name)", (target) => {
       const error = await rejection(
         migrateSchema(db(), schema, [...migrations, next(0, [`create table $S.a (id int)`]), late]),
       );
-      expect((error as MigrationError).code).toBe("diverged");
+      expect((error as MigrationError).code).toBe("MIGRATION_DIVERGED");
       expect((error as Error).message).toMatch(`migration ${NEXT} (test_${NEXT}) is not applied`);
     });
 
@@ -281,7 +281,7 @@ describe.each(dbTargets)("migrateSchema ($name)", (target) => {
         `insert into "${schema}".schema_migrations (version, name) values (1, 'initial')`,
       );
       const error = await rejection(migrateSchema(db(), schema));
-      expect((error as MigrationError).code).toBe("diverged");
+      expect((error as MigrationError).code).toBe("MIGRATION_DIVERGED");
       expect((error as Error).message).toMatch(/pre-release ton-watch.*drop it/);
     });
   });

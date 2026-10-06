@@ -32,7 +32,7 @@ describe("resolveSettings", () => {
       retryMinMs: 1_000,
       retryMaxMs: 60_000,
       archiveRetryMs: 600_000,
-      addressMetrics: true,
+      addressMetrics: false,
     });
   });
 
@@ -48,7 +48,7 @@ describe("resolveSettings", () => {
       retryMinMs: 19,
       retryMaxMs: 23,
       archiveRetryMs: 29,
-      addressMetrics: false,
+      addressMetrics: true,
     } as const;
     expect(resolveSettings({ ...base(), ...options })).toEqual(options);
   });

@@ -2,6 +2,7 @@ import { classifyError, type ErrorKind, errorMessage, SourceError } from "../../
 import { Metrics } from "../../metrics/metrics";
 import { exponentialBackoff, withJitter } from "../../util/backoff";
 import { type Logger, silentLogger } from "../../util/logger";
+import { assertPositiveInteger, invalidOption } from "../../util/validate";
 
 /** One server a `ServerPool` can send calls to. */
 export interface PoolMember<C> {
@@ -92,7 +93,7 @@ export class ServerPool<C> {
   private slotWaiters: (() => void)[] = [];
 
   constructor(members: PoolMember<C>[], options: ServerPoolOptions = {}) {
-    if (members.length === 0) throw new Error("ServerPool needs at least one server");
+    if (members.length === 0) throw invalidOption("servers", "must contain at least one server");
     this.members = members.map((member) => ({
       ...member,
       inFlight: 0,
@@ -107,6 +108,8 @@ export class ServerPool<C> {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     this.maxCooldownMs = options.maxCooldownMs ?? DEFAULT_MAX_COOLDOWN_MS;
+    assertPositiveInteger("maxInFlightPerServer", this.maxInFlight);
+    assertPositiveInteger("maxAttempts", this.maxAttempts);
     this.metrics = options.metrics ?? new Metrics();
     this.logger = options.logger ?? silentLogger;
   }

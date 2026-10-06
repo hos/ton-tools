@@ -35,13 +35,17 @@ const DEFAULT_SYNC_ROUNDS = 1000;
  * completeness is derived from the prev links in the store.
  *
  * Emits `tick`, `frontier`, `synced` and `fetchError` (see `IndexerEventMap`).
+ *
+ * Most applications use `TonWatch`, which wraps one. Exported from
+ * `ton-watch/advanced` for custom setups.
+ * @experimental
  */
 export class Indexer extends EventEmitter<IndexerEventMap> {
   readonly store: Store;
   readonly source: TxSource;
   readonly metrics: Metrics;
   /** Time (ms) of the last successful tick; 0 before the first. */
-  lastTickAt = 0;
+  lastTickAt: number = 0;
 
   private readonly logger: Logger;
   private readonly settings: IndexerSettings;
@@ -186,7 +190,7 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
    * `maxRounds`). Works on a stopped indexer, which it leaves stopped; returns
    * early if `stop()` is called meanwhile.
    */
-  async syncOnce(maxRounds = DEFAULT_SYNC_ROUNDS): Promise<void> {
+  async syncOnce(maxRounds: number = DEFAULT_SYNC_ROUNDS): Promise<void> {
     const wasStopped = this.scheduler.isStopped;
     const generation = this.stopGeneration;
     const interrupted = () => this.stopGeneration !== generation;
@@ -230,10 +234,7 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
 
   private async refreshAddresses(): Promise<void> {
     const dropped = this.addresses.sync(await this.store.listAddresses());
-    for (const address of dropped) {
-      this.scheduler.dropAddress(address);
-      if (this.settings.addressMetrics) this.metrics.clearGauges("ton_watch_address_");
-    }
+    for (const address of dropped) this.scheduler.dropAddress(address);
   }
 
   /** Schedules a head walk for every address whose on-chain last tx is above anything claimed. */

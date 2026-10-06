@@ -12,7 +12,8 @@ import { consoleLogger, type Logger } from "../util/logger";
 import { isConsumerCommand, parseCommand } from "./commands";
 import { configFromEnv, type ServiceConfig, type ToncenterConfig } from "./config";
 import { replayableSpec, runConsumerCommand } from "./consumer-admin";
-import { type ServiceProbe, startHttpServer, toJson } from "./http-server";
+import { type ServiceProbe, startHttpServer } from "./http-server";
+import { addressListResponse, toJson } from "./output";
 import { deliveryProbe, indexerProbe } from "./probes";
 import {
   type WebhookConsumerSpec,
@@ -67,6 +68,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
     logger,
     concurrency: config.concurrency,
     detect: config.detect,
+    addressMetrics: config.addressMetrics,
   });
   await watch.init();
 
@@ -80,7 +82,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
       await watch.removeAddress(command.address, { purge: command.purge });
       return exitAfter(watch);
     case "list":
-      console.log(toJson(await watch.addresses()));
+      console.log(toJson(addressListResponse(await watch.addresses())));
       return exitAfter(watch);
     case "run":
       return run(watch, source, config, logger);
@@ -103,17 +105,17 @@ async function run(watch: TonWatch, source: LiteSource, config: ServiceConfig, l
   const webhooks = startingWebhooks(config, logger).map((spec) =>
     watch.process(spec.name, spec.handler, spec.options),
   );
-  const probe = indexerProbe(watch, () => source.pool.stats(), webhooks);
-  const server = await listenOrStop(probe, config, logger, () => watch.stop());
+  const probe = indexerProbe(watch, () => source.stats(), webhooks);
+  const server = await listenOrStop(probe, config, logger, () => watch.close());
   try {
     await watch.start();
   } catch (error) {
     await closeServer(server);
-    await watch.stop();
+    await watch.close();
     throw error;
   }
   logger.info(`indexing ${(await watch.addresses()).length} address(es)`);
-  stopOnSignal(() => watch.stop(), server, logger);
+  stopOnSignal(() => watch.close(), server, logger);
 }
 
 /**
@@ -168,14 +170,13 @@ function closeServer(server: Server | null): Promise<void> {
 }
 
 function webhookSpecs(config: ServiceConfig): WebhookConsumerSpec[] {
-  const testOnly = config.network === "testnet";
-  return config.webhooks.map((target) => webhookConsumerSpec(target, { testOnly }));
+  return config.webhooks.map((target) => webhookConsumerSpec(target, {}));
 }
 
 /** The webhook consumers to start, logging what each delivers. */
 function startingWebhooks(config: ServiceConfig, logger: Logger): WebhookConsumerSpec[] {
   for (const target of config.webhooks) {
-    if (target.secret === null) {
+    if (target.secrets.length === 0) {
       logger.warn(`webhook ${target.name}: no secret, requests are unsigned`);
     }
     logger.info(
@@ -234,6 +235,6 @@ async function toncenterHistory(config: ToncenterConfig): Promise<Required<Histo
 
 /** One-shot commands: close connections and exit. */
 async function exitAfter(watch: TonWatch): Promise<never> {
-  await watch.stop();
+  await watch.close();
   process.exit(0);
 }

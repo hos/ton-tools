@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 
 import { errorMessage } from "../../src/core/errors";
 import { main } from "../../src/service/cli";
+import type { AddressJson, AddressListResponse } from "../../src/service/output";
 import { TonWatch } from "../../src/ton-watch";
 import { fakeAddress } from "../fixtures/fake-chain";
 import { type ServiceHarness, setupService, until } from "./harness";
@@ -20,17 +21,19 @@ const B = fakeAddress(2);
 let h: ServiceHarness;
 
 const env = (extra: Record<string, string> = {}) => ({
-  DATABASE_URL: "postgres://test/db",
+  TON_WATCH_DATABASE_URL: "postgres://test/db",
   TON_WATCH_LOG: "silent",
   TON_WATCH_PORT: "0",
   ...extra,
 });
 
-/** Runs `list` and returns the parsed JSON it printed. */
-async function list(): Promise<{ address: string; startLt: string }[]> {
+/** Runs `list` and returns the addresses it printed. */
+async function list(): Promise<AddressJson[]> {
   h.logSpy.mockClear();
   await main(["list"], env());
-  return JSON.parse(String(h.logSpy.mock.calls.at(-1)?.[0]));
+  const output: AddressListResponse = JSON.parse(String(h.logSpy.mock.calls.at(-1)?.[0]));
+  expect(output.version).toBe(1);
+  return output.addresses;
 }
 
 beforeEach(async () => {
@@ -42,7 +45,10 @@ afterEach(() => h.teardown());
 
 describe("ton-watch CLI commands", () => {
   test("connects with the configured database, schema and network", async () => {
-    await main(["list"], env({ TON_NETWORK: "testnet", TON_ARCHIVE_CONFIG: "https://a/c.json" }));
+    await main(
+      ["list"],
+      env({ TON_WATCH_NETWORK: "testnet", TON_WATCH_ARCHIVE_NETWORK: "https://a/c.json" }),
+    );
     expect(h.poolSpy).toHaveBeenCalledWith({ connectionString: "postgres://test/db", max: 20 });
     expect(h.connectSpy).toHaveBeenCalledTimes(1);
     expect(h.connectSpy.mock.calls[0]?.[0]).toMatchObject({
@@ -64,12 +70,31 @@ describe("ton-watch CLI commands", () => {
     expect(tables.rows.length).toBeGreaterThan(0);
   });
 
-  test("list on an empty database prints []", async () => {
+  test("list on an empty database prints no addresses", async () => {
     expect(await list()).toEqual([]);
   });
 
-  test("add: --from genesis, --from <lt>, and now by default", async () => {
-    await main(["add", A, "--from", "genesis"], env());
+  test("list prints head and frontier hashes as hex, not Buffer JSON", async () => {
+    await main(["run"], env({ TON_WATCH_ADDRESSES: `${A}@earliest` }));
+    let text = "";
+    await until(async () => {
+      h.logSpy.mockClear();
+      await main(["list"], env());
+      text = String(h.logSpy.mock.calls.at(-1)?.[0]);
+      return (JSON.parse(text) as AddressListResponse).addresses[0]?.frontier != null;
+    });
+    process.emit("SIGTERM");
+    expect(text).not.toContain("Buffer");
+    const [state] = (JSON.parse(text) as AddressListResponse).addresses;
+    expect(state!.head?.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(state!.frontier).toEqual({
+      lt: expect.stringMatching(/^\d+$/),
+      hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+  });
+
+  test("add: --from earliest, --from <lt>, and now by default", async () => {
+    await main(["add", A, "--from", "earliest"], env());
     await main(["add", B, "--from", "12345"], env());
     expect(h.exitSpy).toHaveBeenCalledTimes(2);
     let states = await list();
@@ -93,7 +118,7 @@ describe("ton-watch CLI commands", () => {
 
   test("add without an address or with a bad --from fails with usage", async () => {
     await expect(main(["add"], env())).rejects.toThrow(
-      "usage: ton-watch add <address> [--from now|genesis|<lt>]",
+      "usage: ton-watch add <address> [--from now|earliest|<lt>]",
     );
     await expect(main(["add", A, "--from", "soon"], env())).rejects.toThrow(
       "invalid --from value: soon",
@@ -101,8 +126,8 @@ describe("ton-watch CLI commands", () => {
   });
 
   test("remove, with and without --purge", async () => {
-    await main(["add", A, "--from", "genesis"], env());
-    await main(["add", B, "--from", "genesis"], env());
+    await main(["add", A, "--from", "earliest"], env());
+    await main(["add", B, "--from", "earliest"], env());
     await main(["remove", A], env());
     await main(["remove", B, "--purge"], env());
     expect(await list()).toEqual([]);
@@ -120,7 +145,7 @@ describe("ton-watch CLI commands", () => {
 
   test("bad configuration fails before connecting to anything", async () => {
     await expect(main(["list"], { TON_WATCH_LOG: "silent" })).rejects.toThrow(
-      "DATABASE_URL is required",
+      "TON_WATCH_DATABASE_URL (or DATABASE_URL) is required",
     );
     await expect(main(["list"], env({ TON_WATCH_DETECT: "x" }))).rejects.toThrow(
       "invalid TON_WATCH_DETECT",
@@ -155,15 +180,15 @@ describe("ton-watch run", () => {
     });
 
   test("is the default command: ensures addresses, serves HTTP, stops on SIGTERM", async () => {
-    await main(["add", A, "--from", "genesis"], env());
+    await main(["add", A, "--from", "earliest"], env());
     h.exitSpy.mockClear();
     const port = await freePort();
     await main(
       [],
-      env({ TON_WATCH_PORT: String(port), TON_WATCH_ADDRESSES: `${A}@now,${B}@genesis` }),
+      env({ TON_WATCH_PORT: String(port), TON_WATCH_ADDRESSES: `${A}@now,${B}@earliest` }),
     );
 
-    // A was already watched (from genesis) and is kept as is; B is added.
+    // A was already watched (from earliest) and is kept as is; B is added.
     expect((await list()).map((s) => [s.address, s.startLt])).toEqual([
       [A, "0"],
       [B, "0"],
@@ -172,7 +197,7 @@ describe("ton-watch run", () => {
 
     const health = await fetch(`http://127.0.0.1:${port}/health`);
     expect([200, 503]).toContain(health.status);
-    expect((await health.json()).running).toBe(true);
+    expect((await health.json()).components.indexer.running).toBe(true);
     const status = await (await fetch(`http://127.0.0.1:${port}/status`)).json();
     expect(status.servers).toEqual([]);
     expect(status.addresses).toHaveLength(2);
@@ -229,7 +254,7 @@ describe("ton-watch run", () => {
   });
 
   test("an invalid TON_WATCH_ADDRESSES entry fails before connecting", async () => {
-    await expect(main(["run"], env({ TON_WATCH_ADDRESSES: `${A},nope@genesis` }))).rejects.toThrow(
+    await expect(main(["run"], env({ TON_WATCH_ADDRESSES: `${A},nope@earliest` }))).rejects.toThrow(
       "invalid TON_WATCH_ADDRESSES: nope is not an address",
     );
     expect(h.poolSpy).not.toHaveBeenCalled();
@@ -247,7 +272,10 @@ describe("ton-watch run", () => {
 describe("ton-watch startup errors", () => {
   test("an unreachable database produces a readable message", async () => {
     h.poolSpy.mockRestore();
-    const error = await main(["list"], env({ DATABASE_URL: "postgres://u@localhost:1/db" })).then(
+    const error = await main(
+      ["list"],
+      env({ TON_WATCH_DATABASE_URL: "postgres://u@localhost:1/db" }),
+    ).then(
       () => null,
       (caught: unknown) => caught,
     );
@@ -266,10 +294,10 @@ describe("ton-watch binary", () => {
     return { code: result.exitCode, stderr: result.stderr.toString() };
   };
 
-  test("exits 1 with a prefixed message when DATABASE_URL is missing", () => {
+  test("exits 1 with a prefixed message when the database URL is missing", () => {
     const { code, stderr } = run({});
     expect(code).toBe(1);
-    expect(stderr).toContain("[ton-watch] DATABASE_URL is required");
+    expect(stderr).toContain("[ton-watch] TON_WATCH_DATABASE_URL (or DATABASE_URL) is required");
   });
 
   test("exits 1 on an invalid variable", () => {

@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "isolatedDeclarations": true,
+    "rootDir": "src",
+    "outDir": "node_modules/.cache/api-declarations"
+  },
+  "files": [
+    "src/index.ts",
+    "src/advanced.ts",
+    "src/plugins/toncenter/index.ts",
+    "src/parse/index.ts",
+    "src/webhook/index.ts"
+  ]
+}

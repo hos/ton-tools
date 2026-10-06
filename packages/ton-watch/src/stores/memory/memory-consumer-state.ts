@@ -7,7 +7,7 @@ import type {
   ConsumerStateStore,
   CursorState,
   DeadLetter,
-  DeadLetterFilter,
+  RawDeadLetterFilter,
 } from "../consumer-state";
 
 /** What consumer state needs to know about the stored transactions. */
@@ -122,7 +122,7 @@ export class MemoryConsumerState implements ConsumerStateStore {
     return true;
   }
 
-  async listDeadLetters(filter: DeadLetterFilter = {}): Promise<DeadLetter[]> {
+  async listDeadLetters(filter: RawDeadLetterFilter = {}): Promise<DeadLetter[]> {
     return [...this.deadLetters.values()]
       .filter(
         (letter) =>

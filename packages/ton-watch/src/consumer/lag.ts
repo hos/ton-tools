@@ -12,7 +12,7 @@ export async function measureLag(
   store: Store,
   consumer: string,
   order: ConsumerOrder,
-  nowMs = Date.now(),
+  nowMs: number = Date.now(),
 ): Promise<ConsumerLag> {
   let uptoLt: bigint | undefined;
   if (order === "global") {

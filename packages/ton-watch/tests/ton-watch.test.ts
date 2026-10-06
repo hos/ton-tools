@@ -6,6 +6,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
+import { isTonWatchError } from "../src/core/errors";
 import type { IndexedTx } from "../src/core/types";
 import { MemoryStore } from "../src/stores/memory/memory-store";
 import { PgStore } from "../src/stores/pg/pg-store";
@@ -70,7 +71,7 @@ describe("TonWatch end to end", () => {
 
     // First process: indexes everything, consumer stops part way.
     const w1 = make(chain, store);
-    await w1.addAddress(A, { from: "genesis" });
+    await w1.addAddress(A, { from: "earliest" });
     let count = 0;
     w1.process(
       "billing",
@@ -131,13 +132,13 @@ describe("TonWatch end to end", () => {
     const chain = new FakeChain();
     chain.grow([A], 40);
     const watch = make(chain, new MemoryStore());
-    await watch.addAddress(A, { from: "genesis" });
+    await watch.addAddress(A, { from: "earliest" });
     await watch.start();
     await until(async () => (await watch.addresses())[0]?.frontier?.lt === chain.txs(A).at(-1)!.lt);
 
     const all: bigint[] = [];
     const fresh: bigint[] = [];
-    watch.process("history", (tx) => void all.push(tx.lt), { from: "start" });
+    watch.process("history", (tx) => void all.push(tx.lt), { from: "earliest" });
     watch.process("live", (tx) => void fresh.push(tx.lt), { from: "now" });
     await until(() => all.length === 40);
     chain.grow([A], 5);
@@ -182,6 +183,78 @@ describe("TonWatch end to end", () => {
     expect(watch.health().running).toBe(false);
   });
 
+  test("forwards indexing events; stop() pauses, close() ends for good", async () => {
+    const X = fakeAddress(0xabcdef); // hex letters: the uppercase input must map to it
+    const chain = new FakeChain();
+    chain.grow([X], 5);
+    const store = new MemoryStore();
+    let sourceClosed = 0;
+    const source = Object.assign(new FakeSource(chain), {
+      close: async () => void sourceClosed++,
+    });
+    const watch = new TonWatch({ store, source, tickMs: 10, logger: silentLogger });
+    const ticks: number[] = [];
+    const frontiers: [string, bigint][] = [];
+    watch.on("tick", (tip) => void ticks.push(tip.seqno));
+    watch.on("frontier", (address, lt) => void frontiers.push([address, lt]));
+    const raw = await watch.addAddress(X.toUpperCase(), { from: "earliest" });
+    expect(raw).toBe(X);
+
+    await watch.start();
+    await until(() => frontiers.some(([, lt]) => lt === chain.txs(X).at(-1)!.lt));
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(frontiers.every(([address]) => address === X)).toBe(true);
+
+    await watch.stop();
+    expect(sourceClosed).toBe(0);
+    expect(await watch.addresses()).toHaveLength(1); // the store is still open
+    await watch.start();
+    expect(watch.health().running).toBe(true);
+
+    const closing = watch.close();
+    expect(watch.close()).toBe(closing);
+    await closing;
+    expect(sourceClosed).toBe(1);
+    expect(watch.health().running).toBe(false);
+    for (const call of [() => watch.start(), () => watch.addAddress(B)]) {
+      const error = await call().catch((e: unknown) => e);
+      expect(isTonWatchError(error, "CLOSED")).toBe(true);
+    }
+  });
+
+  test("health takes its lag threshold as an option", async () => {
+    const chain = new FakeChain();
+    chain.grow([A], 3);
+    const watch = make(chain, new MemoryStore());
+    await watch.addAddress(A);
+    expect(watch.health({ maxLagSeconds: 1 }).status).toBe("down");
+    expect(watch.health({}).reasons).toContain("not running");
+  });
+
+  test("consumer registry errors carry codes", async () => {
+    const chain = new FakeChain();
+    const watch = make(chain, new MemoryStore());
+    watch.process("c", () => {});
+    expect(() => watch.process("c", () => {})).toThrow(
+      expect.objectContaining({ code: "CONSUMER_REGISTERED" }),
+    );
+    for (const call of [
+      () => watch.deleteConsumer("c"),
+      () => watch.consumerLag("nobody"),
+      () => watch.replayDeadLetter("nobody", A, 1n),
+    ]) {
+      const error = await call().catch((e: unknown) => e);
+      expect(isTonWatchError(error)).toBe(true);
+    }
+    expect(
+      isTonWatchError(
+        await watch.consumerLag("nobody").catch((e: unknown) => e),
+        "UNKNOWN_CONSUMER",
+      ),
+    ).toBe(true);
+    await watch.close();
+  });
+
   test("on Postgres (PGlite): handler writes and positions survive a crash-restart exactly once", async () => {
     const chain = new FakeChain();
     chain.grow([A], 80, 4);
@@ -194,14 +267,14 @@ describe("TonWatch end to end", () => {
       if (Number(tx.lt % 9n) === 0 && crashes++ % 2 === 0) throw new Error("boom");
     };
     const w1 = make(chain, new PgStore(db as any));
-    await w1.addAddress(A, { from: "genesis" });
+    await w1.addAddress(A, { from: "earliest" });
     w1.process("pg", handler, { retryMinMs: 1, retryMaxMs: 2 });
     await w1.start();
     await until(
       async () =>
         (await db.query<{ n: number }>(`select count(*)::int n from seen`)).rows[0]!.n >= 30,
     );
-    await w1.stop({ closeStore: false });
+    await w1.stop();
 
     const w2 = make(chain, new PgStore(db as any));
     w2.process("pg", handler, { retryMinMs: 1, retryMaxMs: 2 });
@@ -211,7 +284,7 @@ describe("TonWatch end to end", () => {
         (await db.query<{ n: number }>(`select count(*)::int n from seen`)).rows[0]!.n === 80,
       10_000,
     );
-    await w2.stop({ closeStore: false });
+    await w2.stop();
     const { rows } = await db.query<{ lt: string }>(`select lt::text from seen order by lt`);
     expect(rows.map((r) => BigInt(r.lt))).toEqual(lts(chain.txs(A)));
   }, 20_000);

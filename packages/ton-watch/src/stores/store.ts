@@ -1,7 +1,11 @@
 import type { AddressState, Gap, TxId, TxRecord } from "../core/types";
 import type { ConsumerStateStore } from "./consumer-state";
 
-/** How a store starts tracking an address. */
+/**
+ * How a store starts tracking an address.
+ *
+ * @experimental Custom store implementations are unsupported in 0.x.
+ */
 export interface AddAddressOptions {
   /** Transactions with `lt <= startLt` are out of scope. 0 = full history. */
   startLt: bigint;
@@ -11,12 +15,19 @@ export interface AddAddressOptions {
   syncedUtime?: number;
 }
 
-/** Handed to the callback of `Store.transaction`. */
-export interface StoreTransaction {
+/**
+ * Handed to the callback of `Store.transaction`.
+ *
+ * @experimental Custom store implementations are unsupported in 0.x.
+ */
+export interface StoreTransaction<Db = unknown> {
   /** The same store, bound to the open database transaction. */
-  store: Store;
-  /** The store's native transaction handle (for `PgStore`, the `pg`/PGlite client). */
-  db: unknown;
+  store: Store<Db>;
+  /**
+   * The store's native transaction handle, handed to consumer handlers as
+   * `HandlerContext.db` (for `PgStore`, a `PgQueryable` on the open transaction).
+   */
+  db: Db;
 }
 
 /**
@@ -26,9 +37,18 @@ export interface StoreTransaction {
  * implementation, `MemoryStore` the minimal one.
  *
  * Consumer positions, failures and dead letters are the `ConsumerStateStore` half.
- * Addresses are always raw (`<workchain>:<hex>`); `TonWatch` normalizes them.
+ *
+ * Addresses: implementations accept any form `toRawAddress` does and normalize
+ * with it before using an address as a key, so `0:ABC…` and `0:abc…` are one
+ * address; every address they return is lowercase raw.
+ *
+ * `Db` is the native transaction handle of `transaction()`, which consumer
+ * handlers receive as `HandlerContext.db`.
+ *
+ * @experimental Custom implementations are unsupported in 0.x: methods may be
+ * added in minor versions. Use `PgStore` or `MemoryStore`.
  */
-export interface Store extends ConsumerStateStore {
+export interface Store<Db = unknown> extends ConsumerStateStore {
   /** Creates/upgrades the schema. Idempotent. Never drops data. */
   migrate(): Promise<void>;
   close(): Promise<void>;
@@ -66,10 +86,13 @@ export interface Store extends ConsumerStateStore {
    * Optional: runs `fn` atomically. Consumers use it to commit the handler's own
    * writes (through `db`) together with the cursor, giving exactly-once effects.
    */
-  transaction?<T>(fn: (tx: StoreTransaction) => Promise<T>): Promise<T>;
+  transaction?<T>(fn: (tx: StoreTransaction<Db>) => Promise<T>): Promise<T>;
 }
 
 /** Runs `fn` in a store transaction if the store has them, otherwise directly. */
-export function runAtomically<T>(store: Store, fn: (store: Store) => Promise<T>): Promise<T> {
+export function runAtomically<T, Db>(
+  store: Store<Db>,
+  fn: (store: Store<Db>) => Promise<T>,
+): Promise<T> {
   return store.transaction ? store.transaction((tx) => fn(tx.store)) : fn(store);
 }

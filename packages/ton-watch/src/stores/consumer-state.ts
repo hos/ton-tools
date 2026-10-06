@@ -1,10 +1,12 @@
+import type { AddressInput } from "../core/address";
+
 /** Delivery order of a consumer (see `ProcessOptions.order`). */
 export type ConsumerOrder = "address" | "global";
 
 /** A consumer's position on one address, with the failure state of the transaction after it. */
 export interface CursorState {
   consumer: string;
-  /** Raw address. */
+  /** Lowercase raw address. */
   address: string;
   /** Lt of the last transaction delivered, skipped or dead-lettered. */
   lt: bigint;
@@ -30,7 +32,7 @@ export interface ConsumerRecord {
 /** A transaction a consumer gave up on after `maxAttempts` failed handler calls. */
 export interface DeadLetter {
   consumer: string;
-  /** Raw address. */
+  /** Lowercase raw address. */
   address: string;
   lt: bigint;
   hash: Buffer;
@@ -43,14 +45,20 @@ export interface DeadLetter {
 
 export interface DeadLetterFilter {
   consumer?: string;
-  /** Raw address. */
-  address?: string;
+  address?: AddressInput;
   lt?: bigint;
   /** Default: no limit. */
   limit?: number;
 }
 
-/** Stored, not yet delivered transactions of one address for one consumer. */
+/** A `DeadLetterFilter` whose address is already normalized (store internals). */
+export type RawDeadLetterFilter = Omit<DeadLetterFilter, "address"> & { address?: string };
+
+/**
+ * Stored, not yet delivered transactions of one address for one consumer.
+ *
+ * @experimental Part of the `Store` contract; custom stores are unsupported in 0.x.
+ */
 export interface Backlog {
   address: string;
   cursor: bigint;
@@ -62,7 +70,11 @@ export interface Backlog {
   oldestUtime: number | null;
 }
 
-/** A consumer's single-instance lock, held until released (or its connection is lost). */
+/**
+ * A consumer's single-instance lock, held until released (or its connection is lost).
+ *
+ * @experimental Part of the `Store` contract; custom stores are unsupported in 0.x.
+ */
 export interface ConsumerLock {
   /** False once released or once the connection holding it broke. */
   readonly held: boolean;
@@ -71,7 +83,10 @@ export interface ConsumerLock {
 
 /**
  * The per-consumer half of a `Store`: delivery positions, failure counts, dead
- * letters and the single-instance lock. Addresses are raw.
+ * letters and the single-instance lock. Addresses are normalized as `Store` describes.
+ *
+ * @experimental Custom implementations are unsupported in 0.x: methods may be
+ * added in minor versions.
  */
 export interface ConsumerStateStore {
   getCursor(consumer: string, address: string): Promise<bigint | null>;

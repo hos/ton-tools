@@ -1,111 +1,62 @@
 /**
  * Guards the public surface: adding is a conscious choice, removing or renaming is
- * a breaking change. Runtime exports are checked here; type-only exports are
- * checked by `bun run typecheck` through `PublicTypes` below.
+ * a breaking change. Runtime exports are checked here; types are checked by the
+ * declaration snapshot in `api-snapshot.test.ts`.
  */
 import { describe, expect, test } from "bun:test";
 
 import pkg from "../package.json";
-import type * as Api from "../src/index";
-import type * as Toncenter from "../src/plugins/toncenter";
-import type * as Webhook from "../src/webhook";
 
 const RUNTIME_EXPORTS = [
-  "Consumer",
   "ConsumerLockedError",
   "CursorConflictError",
-  "Indexer",
   "LiteSource",
   "MemoryStore",
   "Metrics",
   "MigrationError",
   "PgStore",
-  "ServerPool",
   "SourceError",
   "TonWatch",
-  "analyzeChain",
-  "classifyError",
-  "completeUpTo",
+  "TonWatchError",
   "consoleLogger",
-  "poolDatabase",
-  "recordFromCell",
+  "isTonWatchError",
   "silentLogger",
-  "toIndexedTx",
-  "toRaw",
-  "txIdEquals",
-  "validatePage",
+  "toRawAddress",
 ];
 
-/** Fails to type-check if any type-only export disappears or is renamed. */
-export type PublicTypes = [
-  Api.AddAddressOptions,
-  Api.AddressLag,
-  Api.AddressState,
-  Api.AddressStatus,
-  Api.Backlog,
-  Api.BlockRef,
-  Api.ChainAnalysis,
-  Api.ChainTip,
-  Api.ConsumerDeps,
-  Api.ConsumerEventMap,
-  Api.ConsumerLag,
-  Api.ConsumerLock,
-  Api.ConsumerOrder,
-  Api.ConsumerRecord,
-  Api.ConsumerStateStore,
-  Api.ConsumerStatus,
-  Api.ConsumerWakeEvents,
-  Api.CursorState,
-  Api.DeadLetter,
-  Api.DeadLetterFilter,
-  Api.DetectMode,
-  Api.ErrorKind,
-  Api.FailurePolicy,
-  Api.Gap,
-  Api.HandlerContext,
-  Api.HandlerFailure,
-  Api.Health,
-  Api.HistoryOptions,
-  Api.HistorySource,
-  Api.IndexedTx,
-  Api.IndexerEventMap,
-  Api.IndexerOptions,
-  Api.LiteSourceOptions,
-  Api.LockMode,
-  Api.LogLevel,
-  Api.Logger,
-  Api.MigrationErrorCode,
-  Api.PgDatabase,
-  Api.PgQueryable,
-  Api.PgSession,
-  Api.PgStoreOptions,
-  Api.PoolMember<unknown>,
-  Api.ProcessOptions,
-  Api.RewindOptions,
-  Api.RewindTarget,
-  Api.ServerPoolOptions,
-  Api.ServerStats,
-  Api.ShardTop,
-  Api.SplitOptions,
-  Api.Store,
-  Api.StoreAddAddressOptions,
-  Api.StoreTransaction,
-  Api.TonWatchOptions,
-  Api.TxHandler,
-  Api.TxId,
-  Api.TxRecord,
-  Api.TxSource,
-  Toncenter.ToncenterHistoryOptions,
-  Webhook.HashJson,
-  Webhook.ParsedJson,
-  Webhook.VerifyOptions,
-  Webhook.WebhookPayload,
+const ADVANCED_EXPORTS = [
+  "Consumer",
+  "Indexer",
+  "analyzeChain",
+  "classifyError",
+  "recordFromCell",
+  "validatePage",
 ];
 
 describe("public API", () => {
   test("ton-watch exports exactly these runtime names", async () => {
     const api = await import("ton-watch");
     expect(Object.keys(api).sort()).toEqual(RUNTIME_EXPORTS);
+  });
+
+  test("ton-watch/advanced exports the building blocks", async () => {
+    const advanced = await import("ton-watch/advanced");
+    expect(Object.keys(advanced).sort()).toEqual(ADVANCED_EXPORTS);
+  });
+
+  test("internal helpers are exported from no entry point", async () => {
+    const entries = await Promise.all([import("ton-watch"), import("ton-watch/advanced")]);
+    const names = entries.flatMap((entry) => Object.keys(entry));
+    for (const internal of [
+      "ServerPool",
+      "serverPoolOf",
+      "poolDatabase",
+      "toIndexedTx",
+      "txIdEquals",
+      "completeUpTo",
+    ]) {
+      expect(names).not.toContain(internal);
+    }
   });
 
   test("ton-watch/toncenter exports only the plug-in", async () => {
@@ -126,10 +77,20 @@ describe("public API", () => {
     ]);
   });
 
-  test("ton-watch/webhook exports the receiver-side signature check", async () => {
+  test("ton-watch/webhook exports the receiver side: headers, signature check, payload version", async () => {
     const webhook = await import("ton-watch/webhook");
-    expect(Object.keys(webhook).sort()).toEqual(["SIGNATURE_HEADER", "verifySignature"]);
+    expect(Object.keys(webhook).sort()).toEqual([
+      "DEFAULT_TOLERANCE_SECONDS",
+      "EVENT_HEADER",
+      "IDEMPOTENCY_HEADER",
+      "REPLAY_HEADER",
+      "SIGNATURE_HEADER",
+      "WEBHOOK_PAYLOAD_VERSION",
+      "verifySignature",
+    ]);
     expect(webhook.SIGNATURE_HEADER).toBe("ton-watch-signature");
+    expect(webhook.EVENT_HEADER).toBe("ton-watch-event");
+    expect(webhook.WEBHOOK_PAYLOAD_VERSION).toBe(1);
   });
 
   test("the main entry does not pull in the toncenter plug-in", async () => {
@@ -140,6 +101,7 @@ describe("public API", () => {
   test("package entry points resolve to the source modules", async () => {
     expect(pkg.exports).toEqual({
       ".": "./src/index.ts",
+      "./advanced": "./src/advanced.ts",
       "./toncenter": "./src/plugins/toncenter/index.ts",
       "./parse": "./src/parse/index.ts",
       "./webhook": "./src/webhook/index.ts",
@@ -148,6 +110,9 @@ describe("public API", () => {
     expect(pkg.module).toBe("src/index.ts");
     const dir = `${import.meta.dir}/..`;
     expect(Bun.resolveSync("ton-watch", dir)).toBe(Bun.resolveSync("./src/index.ts", dir));
+    expect(Bun.resolveSync("ton-watch/advanced", dir)).toBe(
+      Bun.resolveSync("./src/advanced.ts", dir),
+    );
     expect(Bun.resolveSync("ton-watch/toncenter", dir)).toBe(
       Bun.resolveSync("./src/plugins/toncenter/index.ts", dir),
     );

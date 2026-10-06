@@ -2,8 +2,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { ConsumerStatus } from "../../src/consumer/types";
-import { startHttpServer, toJson } from "../../src/service/http-server";
-import { deliveryHealth, indexerProbe, runHealth } from "../../src/service/probes";
+import { Metrics } from "../../src/metrics/metrics";
+import { startHttpServer } from "../../src/service/http-server";
+import {
+  type ConsumersResponse,
+  deliverStatusResponse,
+  type HealthResponse,
+  healthResponse,
+  toJson,
+} from "../../src/service/output";
+import { deliveryProbe, indexerProbe } from "../../src/service/probes";
 import type { ServerStats } from "../../src/source/liteserver/server-pool";
 import { MemoryStore } from "../../src/stores/memory/memory-store";
 import { type Health, TonWatch } from "../../src/ton-watch";
@@ -46,7 +54,7 @@ async function setup(logger: Logger = silentLogger) {
     maxIdlePollMs: 0,
     logger: silentLogger,
   });
-  await watch.addAddress(A, { from: "genesis" });
+  await watch.addAddress(A, { from: "earliest" });
   server = await startHttpServer(
     indexerProbe(watch, () => stats),
     0,
@@ -66,12 +74,18 @@ const until = async (cond: () => boolean, ms = 5_000) => {
 };
 
 describe("toJson", () => {
-  test("bigints become decimal strings, nested too, pretty-printed", () => {
-    expect(toJson({ lt: 123n, list: [1n, { x: -5n }], n: 1, s: "a", z: null })).toBe(
-      JSON.stringify({ lt: "123", list: ["1", { x: "-5" }], n: 1, s: "a", z: null }, null, 2),
-    );
-    expect(toJson(2n ** 64n)).toBe('"18446744073709551616"');
+  test("pretty-prints, and refuses a bigint that escaped the output types", () => {
+    expect(toJson({ lt: "123", n: 1 })).toBe('{\n  "lt": "123",\n  "n": 1\n}');
+    expect(() => toJson({ lt: 1n })).toThrow();
   });
+});
+
+/** A probe answering fixed values, for tests of the server alone. */
+const staticProbe = (consumers: () => Promise<ConsumersResponse>) => ({
+  metrics: () => "",
+  health: (): HealthResponse => healthResponse(null, []),
+  status: () => deliverStatusResponse([]),
+  consumers,
 });
 
 describe("startHttpServer", () => {
@@ -84,13 +98,14 @@ describe("startHttpServer", () => {
 
   test("/metrics serves the Prometheus text of the watch's metrics", async () => {
     const { watch, get } = await setup();
-    watch.metrics.inc("my_counter_total", { kind: "x" }, 3);
+    watch.metrics.inc("ton_watch_consumer_delivered_total", { consumer: "x" }, 3);
     const response = await get("/metrics");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/plain; version=0.0.4");
     const body = await response.text();
     expect(body).toBe(watch.metrics.toPrometheus());
-    expect(body).toContain('my_counter_total{kind="x"} 3\n');
+    expect(body).toContain('ton_watch_consumer_delivered_total{consumer="x"} 3\n');
+    expect(body).toContain("# TYPE ton_watch_consumer_delivered_total counter\n");
   });
 
   test("/health is 503 while not running", async () => {
@@ -98,22 +113,24 @@ describe("startHttpServer", () => {
     const response = await get("/health");
     expect(response.status).toBe(503);
     expect(response.headers.get("content-type")).toBe("application/json");
-    const health = await response.json();
+    const health: HealthResponse = await response.json();
+    expect(health.version).toBe(1);
     expect(health.status).toBe("down");
-    expect(health.running).toBe(false);
-    expect(health.reasons).toContain("not running");
+    expect(health.components.indexer?.running).toBe(false);
+    expect(health.components.indexer?.reasons).toContain("not running");
+    expect(health.reasons).toContain("indexer: not running");
   });
 
   test("/health is 200 once running and ticking", async () => {
     const { watch, get } = await setup();
     await watch.start();
-    await until(() => watch.indexer.lastTickAt > 0);
+    await until(() => watch.health().status !== "down"); // ticked once
     const response = await get("/health");
-    const health = await response.json();
+    const health: HealthResponse = await response.json();
     expect(health.status).not.toBe("down");
     expect(response.status).toBe(200);
-    expect(health.running).toBe(true);
-    expect(health.addresses).toBe(1);
+    expect(health.components.indexer?.running).toBe(true);
+    expect(health.components.indexer?.addresses).toBe(1);
   });
 
   test("/status lists addresses with bigint fields as strings, plus server stats", async () => {
@@ -124,6 +141,7 @@ describe("startHttpServer", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/json");
     const body = await response.json();
+    expect(body.mode).toBe("run");
     expect(body.servers).toEqual(stats);
     expect(body.webhooks).toEqual([]);
     expect(body.addresses).toHaveLength(1);
@@ -140,21 +158,17 @@ describe("startHttpServer", () => {
     const response = await get("/consumers");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/json");
-    expect(await response.json()).toMatchObject([
-      { name: "reader", order: "address", addresses: 1, failing: 0, deadLetters: 0 },
-    ]);
+    expect(await response.json()).toMatchObject({
+      version: 1,
+      consumers: [{ name: "reader", order: "address", addresses: 1, failing: 0, deadLetters: 0 }],
+    });
   });
 
   test("/consumers is 500 with the error when the store fails", async () => {
     const lines: unknown[][] = [];
     const logger: Logger = { ...silentLogger, warn: (...args) => void lines.push(args) };
     server = await startHttpServer(
-      {
-        metrics: () => "",
-        health: () => ({ status: "ok" }),
-        status: () => ({}),
-        consumers: () => Promise.reject(new Error("database is gone")),
-      },
+      staticProbe(() => Promise.reject(new Error("database is gone"))),
       0,
       logger,
     );
@@ -197,12 +211,7 @@ describe("startHttpServer", () => {
     const { port } = await setup();
     const lines: unknown[][] = [];
     const logger: Logger = { ...silentLogger, info: (...args) => void lines.push(args) };
-    const probe = {
-      metrics: () => "",
-      health: () => ({ status: "ok" as const }),
-      status: () => ({}),
-      consumers: async () => [],
-    };
+    const probe = staticProbe(async () => ({ version: 1, consumers: [] }));
     await expect(startHttpServer(probe, port, logger)).rejects.toThrow(
       `cannot serve HTTP on port ${port}`,
     );
@@ -233,22 +242,57 @@ describe("run health", () => {
     reasons: [],
   };
 
-  test("is the worse of the indexer's and the webhooks' health, with both reasons", () => {
-    expect(runHealth(indexer, deliveryHealth([]))).toMatchObject({ status: "ok", webhooks: 0 });
-    expect(runHealth(indexer, deliveryHealth([webhook(true, true)]))).toMatchObject({
+  test("is the worst of the components, with every reason prefixed by its component", () => {
+    expect(healthResponse(indexer, [])).toMatchObject({ status: "ok", reasons: [] });
+    expect(healthResponse(indexer, [webhook(true, true)])).toMatchObject({
       status: "degraded",
-      webhooks: 1,
-      reasons: [`webhook:a retrying ${A}: HTTP 500`],
+      reasons: [`webhook:a: retrying ${A}: HTTP 500`],
+      components: { webhooks: [{ name: "webhook:a", status: "degraded", retrying: 1 }] },
     });
-    expect(runHealth(indexer, deliveryHealth([webhook(false, false)]))).toMatchObject({
+    expect(healthResponse(indexer, [webhook(false, false)])).toMatchObject({
       status: "down",
-      reasons: ["webhook:a not running"],
+      reasons: ["webhook:a: not running"],
     });
     const down: Health = { ...indexer, status: "down", reasons: ["not running"] };
-    expect(runHealth(down, deliveryHealth([webhook(true, true)]))).toMatchObject({
+    expect(healthResponse(down, [webhook(true, true)])).toMatchObject({
       status: "down",
-      reasons: ["not running", `webhook:a retrying ${A}: HTTP 500`],
+      reasons: ["indexer: not running", `webhook:a: retrying ${A}: HTTP 500`],
     });
+  });
+
+  test("deliver has the same shape, without an indexer component", () => {
+    expect(healthResponse(null, [webhook(true, false)])).toEqual({
+      version: 1,
+      status: "ok",
+      reasons: [],
+      components: {
+        indexer: null,
+        webhooks: [
+          {
+            name: "webhook:a",
+            status: "ok",
+            reasons: [],
+            running: true,
+            waitingForLock: false,
+            retrying: 0,
+          },
+        ],
+      },
+    });
+  });
+
+  test("/health under deliver is 503 while a consumer is not running", async () => {
+    const store = new MemoryStore();
+    const chain = new FakeChain();
+    watch = new TonWatch({ store, source: new FakeSource(chain), logger: silentLogger });
+    const hook = watch.process("webhook:a", () => {});
+    server = await startHttpServer(deliveryProbe(new Metrics(), [hook], store), 0, silentLogger);
+    const { port } = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(response.status).toBe(503);
+    const health: HealthResponse = await response.json();
+    expect(health.components.indexer).toBeNull();
+    expect(health.reasons).toEqual(["webhook:a: not running"]);
   });
 
   test("/health under run reports a halted webhook consumer", async () => {
@@ -265,11 +309,11 @@ describe("run health", () => {
     const { port } = server.address() as AddressInfo;
     await watch.start();
     await until(() => hook.status().addresses.some((lane) => lane.halted));
-    await until(() => watch.indexer.lastTickAt > 0);
+    await until(() => watch.health().status !== "down"); // ticked once
     const response = await fetch(`http://127.0.0.1:${port}/health`);
-    const health = await response.json();
-    expect(health.webhooks).toBe(1);
+    const health: HealthResponse = await response.json();
+    expect(health.components.webhooks).toHaveLength(1);
     expect(health.status).not.toBe("ok");
-    expect(health.reasons.join("\n")).toContain("webhook:a retrying");
+    expect(health.reasons.join("\n")).toContain("webhook:a: retrying");
   });
 });

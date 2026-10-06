@@ -1,64 +1,87 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 
 import { Metrics } from "../../src/metrics/metrics";
+import { VERSION } from "../../src/version";
 
-const RATE = "ton_watch_tx_written_per_second";
+const BUILD_INFO = `ton_watch_build_info{version="${VERSION}"}`;
+const DELIVERED = "ton_watch_consumer_delivered_total";
 
 afterEach(() => setSystemTime());
 
 describe("Metrics counters and gauges", () => {
   test("inc adds 1 by default, or `by`", () => {
     const metrics = new Metrics();
-    metrics.inc("c");
-    metrics.inc("c");
-    metrics.inc("c", undefined, 5);
-    expect(metrics.get("c")).toBe(7);
+    metrics.inc("ton_watch_splits_total");
+    metrics.inc("ton_watch_splits_total");
+    metrics.inc("ton_watch_splits_total", undefined, 5);
+    expect(metrics.get("ton_watch_splits_total")).toBe(7);
   });
 
-  test("labels make separate series; empty labels are the bare series", () => {
+  test("labels make separate series", () => {
     const metrics = new Metrics();
-    metrics.inc("c", { kind: "a" });
-    metrics.inc("c", { kind: "b" }, 2);
-    metrics.inc("c", {});
-    expect(metrics.get("c", { kind: "a" })).toBe(1);
-    expect(metrics.get("c", { kind: "b" })).toBe(2);
-    expect(metrics.get("c")).toBe(1);
-    expect(metrics.get("c", {})).toBe(1);
+    metrics.inc(DELIVERED, { consumer: "a" });
+    metrics.inc(DELIVERED, { consumer: "b" }, 2);
+    expect(metrics.get(DELIVERED, { consumer: "a" })).toBe(1);
+    expect(metrics.get(DELIVERED, { consumer: "b" })).toBe(2);
   });
 
-  test("label order is part of the series key", () => {
+  test("labels are matched by name, not by argument order", () => {
     const metrics = new Metrics();
-    metrics.inc("c", { a: "1", b: "2" });
-    expect(metrics.get("c", { a: "1", b: "2" })).toBe(1);
-    expect(metrics.get("c", { b: "2", a: "1" })).toBe(0);
+    metrics.inc("ton_watch_history_pages_total", { source: "toncenter", why: "boost" });
+    expect(
+      metrics.get("ton_watch_history_pages_total", { why: "boost", source: "toncenter" }),
+    ).toBe(1);
   });
 
-  test("set overwrites a gauge, including with 0 and negatives", () => {
+  test("labels other than the declared ones are refused", () => {
     const metrics = new Metrics();
-    metrics.set("g", 10);
-    metrics.set("g", -1);
-    expect(metrics.get("g")).toBe(-1);
-    metrics.set("g", 0);
-    expect(metrics.get("g")).toBe(0);
+    const inc = metrics.inc.bind(metrics) as (name: string, labels?: object) => void;
+    expect(() => inc(DELIVERED)).toThrow("takes labels [consumer]");
+    expect(() => inc(DELIVERED, { consumer: "a", extra: "x" })).toThrow();
+    expect(() => inc("ton_watch_splits_total", { consumer: "a" })).toThrow();
   });
 
-  test("get is 0 for unknown series", () => {
-    expect(new Metrics().get("missing", { x: "y" })).toBe(0);
-  });
-
-  test("sum adds a counter over all labels, without matching longer names", () => {
+  test("set overwrites a gauge, including with 0", () => {
     const metrics = new Metrics();
-    metrics.inc("c", { kind: "a" }, 2);
-    metrics.inc("c", { kind: "b" }, 3);
-    metrics.inc("c");
-    metrics.inc("c_other", undefined, 100);
-    metrics.inc("cc", { kind: "a" }, 100);
-    metrics.set("c", 1000); // gauges are not summed
-    expect(metrics.sum("c")).toBe(6);
-    expect(metrics.sum("nothing")).toBe(0);
+    metrics.set("ton_watch_gaps_open", 10);
+    metrics.set("ton_watch_gaps_open", 0);
+    expect(metrics.get("ton_watch_gaps_open")).toBe(0);
+    expect(metrics.snapshot()).toHaveProperty("ton_watch_gaps_open", 0);
   });
 
-  test("error and call helpers use the documented series", () => {
+  test("get is 0 for a series never recorded", () => {
+    expect(new Metrics().get(DELIVERED, { consumer: "x" })).toBe(0);
+  });
+
+  test("sum adds every series of one metric", () => {
+    const metrics = new Metrics();
+    metrics.inc(DELIVERED, { consumer: "a" }, 2);
+    metrics.inc(DELIVERED, { consumer: "b" }, 3);
+    metrics.inc("ton_watch_consumer_errors_total", { consumer: "a" }, 100);
+    expect(metrics.sum(DELIVERED)).toBe(5);
+    expect(metrics.sum("ton_watch_consumer_skipped_total")).toBe(0);
+  });
+
+  test("remove drops one series, or every series without labels", () => {
+    const metrics = new Metrics();
+    metrics.set("ton_watch_address_lag_seconds", 5, { address: "0:a" });
+    metrics.set("ton_watch_address_lag_seconds", 6, { address: "0:b" });
+    metrics.set("ton_watch_address_gaps_open", 1, { address: "0:a" });
+    metrics.remove("ton_watch_address_lag_seconds", { address: "0:a" });
+    expect(Object.keys(metrics.snapshot())).toContain(
+      'ton_watch_address_lag_seconds{address="0:b"}',
+    );
+    expect(Object.keys(metrics.snapshot())).not.toContain(
+      'ton_watch_address_lag_seconds{address="0:a"}',
+    );
+    metrics.remove("ton_watch_address_lag_seconds");
+    metrics.remove("ton_watch_address_gaps_open");
+    expect(metrics.snapshot()).toEqual({ [BUILD_INFO]: 1 });
+  });
+});
+
+describe("Metrics closed label sets", () => {
+  test("error and call count known sites and methods", () => {
     const metrics = new Metrics();
     metrics.error("timeout", "getTransactions");
     metrics.error("timeout", "getTransactions");
@@ -69,18 +92,12 @@ describe("Metrics counters and gauges", () => {
     expect(metrics.get("ton_watch_source_calls_total", { method: "getTip" })).toBe(1);
   });
 
-  test("clearGauges drops gauges by prefix and leaves counters alone", () => {
+  test("unknown sites and methods count as other", () => {
     const metrics = new Metrics();
-    metrics.set("ton_watch_address_lag_seconds", 5, { address: "a" });
-    metrics.set("ton_watch_address_lag_seconds", 6, { address: "b" });
-    metrics.set("ton_watch_gaps_open", 1);
-    metrics.inc("ton_watch_address_counter");
-    metrics.clearGauges("ton_watch_address_");
-    expect(metrics.snapshot()).toEqual({
-      ton_watch_gaps_open: 1,
-      ton_watch_address_counter: 1,
-      [RATE]: 0,
-    });
+    metrics.error("unknown", "somewhere new");
+    metrics.call("getConfig");
+    expect(metrics.get("ton_watch_errors_total", { kind: "unknown", where: "other" })).toBe(1);
+    expect(metrics.get("ton_watch_source_calls_total", { method: "other" })).toBe(1);
   });
 });
 
@@ -93,7 +110,7 @@ describe("Metrics write rate", () => {
     expect(metrics.get("ton_watch_tx_written_total")).toBe(7);
   });
 
-  test("rate is per second over the window and forgets old samples", () => {
+  test("writeRate is per second over the window and forgets old samples", () => {
     const metrics = new Metrics();
     setSystemTime(new Date(1_000_000));
     metrics.txWritten(60);
@@ -107,44 +124,52 @@ describe("Metrics write rate", () => {
     expect(metrics.writeRate()).toBe(0);
   });
 
-  test("snapshot includes the write rate", () => {
+  test("the rate is not exported as a metric", () => {
     const metrics = new Metrics();
     metrics.txWritten(30);
-    expect(metrics.snapshot()).toEqual({ ton_watch_tx_written_total: 30, [RATE]: 0.5 });
+    expect(metrics.snapshot()).toEqual({ [BUILD_INFO]: 1, ton_watch_tx_written_total: 30 });
   });
 });
 
 describe("Metrics.toPrometheus", () => {
-  test("empty registry still exports the write rate", () => {
-    expect(new Metrics().toPrometheus()).toBe(`# TYPE ${RATE} gauge\n${RATE} 0\n`);
-  });
-
-  test("exact text: one TYPE line per family, counters then gauges, sorted", () => {
-    const metrics = new Metrics();
-    metrics.set("z_gauge", 1.5);
-    metrics.inc("b_total", { kind: "y" }, 2);
-    metrics.inc("b_total", { kind: "x" });
-    metrics.inc("a_total");
-    metrics.set("lag", -1, { address: "0:ab" });
-    expect(metrics.toPrometheus()).toBe(
+  test("a new registry exports only build info", () => {
+    expect(new Metrics().toPrometheus()).toBe(
       [
-        "# TYPE a_total counter",
-        "a_total 1",
-        "# TYPE b_total counter",
-        'b_total{kind="x"} 1',
-        'b_total{kind="y"} 2',
-        "# TYPE lag gauge",
-        'lag{address="0:ab"} -1',
-        "# TYPE z_gauge gauge",
-        "z_gauge 1.5",
-        `# TYPE ${RATE} gauge`,
-        `${RATE} 0`,
+        "# HELP ton_watch_build_info Always 1; the version label is the running ton-watch version.",
+        "# TYPE ton_watch_build_info gauge",
+        `${BUILD_INFO} 1`,
         "",
       ].join("\n"),
     );
   });
 
-  test("multiple labels keep insertion order", () => {
+  test("exact text: HELP and TYPE per family, families and series sorted", () => {
+    const metrics = new Metrics();
+    metrics.set("ton_watch_gaps_open", 1.5);
+    metrics.inc(DELIVERED, { consumer: "y" }, 2);
+    metrics.inc(DELIVERED, { consumer: "x" });
+    metrics.inc("ton_watch_splits_total");
+    expect(metrics.toPrometheus()).toBe(
+      [
+        "# HELP ton_watch_build_info Always 1; the version label is the running ton-watch version.",
+        "# TYPE ton_watch_build_info gauge",
+        `${BUILD_INFO} 1`,
+        "# HELP ton_watch_consumer_delivered_total Transactions handed to the consumer's handler and committed.",
+        "# TYPE ton_watch_consumer_delivered_total counter",
+        'ton_watch_consumer_delivered_total{consumer="x"} 1',
+        'ton_watch_consumer_delivered_total{consumer="y"} 2',
+        "# HELP ton_watch_gaps_open Missing ranges currently known, over all addresses.",
+        "# TYPE ton_watch_gaps_open gauge",
+        "ton_watch_gaps_open 1.5",
+        "# HELP ton_watch_splits_total Long walks split into parallel pieces.",
+        "# TYPE ton_watch_splits_total counter",
+        "ton_watch_splits_total 1",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  test("several labels are written in declaration order", () => {
     const metrics = new Metrics();
     metrics.error("rate_limit", "getTip");
     expect(metrics.toPrometheus()).toContain(
@@ -152,37 +177,35 @@ describe("Metrics.toPrometheus", () => {
     );
   });
 
-  test("double quotes in label values are escaped", () => {
+  test("double quotes, backslashes and newlines in label values are escaped", () => {
     const metrics = new Metrics();
-    metrics.inc("c", { consumer: 'say "hi"' });
-    expect(metrics.toPrometheus()).toContain('c{consumer="say \\"hi\\""} 1\n');
-    expect(metrics.get("c", { consumer: 'say "hi"' })).toBe(1);
-  });
-
-  // BUG: seriesKey escapes `"` but not `\` or newlines, which the Prometheus text
-  // format requires (`\\`, `\n`). A consumer named `a\b` or containing a newline
-  // (consumer names are user-chosen labels) produces an unparsable exposition.
-  test.failing("backslashes and newlines in label values are escaped", () => {
-    const metrics = new Metrics();
-    metrics.inc("c", { consumer: "a\\b" });
-    metrics.inc("c", { consumer: "line1\nline2" });
+    metrics.inc(DELIVERED, { consumer: 'say "hi"' });
+    metrics.inc(DELIVERED, { consumer: "a\\b" });
+    metrics.inc(DELIVERED, { consumer: "line1\nline2" });
     const text = metrics.toPrometheus();
-    expect(text).toContain('c{consumer="a\\\\b"} 1\n');
-    expect(text).toContain('c{consumer="line1\\nline2"} 1\n');
+    expect(text).toContain(`${DELIVERED}{consumer="say \\"hi\\""} 1\n`);
+    expect(text).toContain(`${DELIVERED}{consumer="a\\\\b"} 1\n`);
+    expect(text).toContain(`${DELIVERED}{consumer="line1\\nline2"} 1\n`);
+    expect(metrics.get(DELIVERED, { consumer: 'say "hi"' })).toBe(1);
   });
 
-  // BUG: series are sorted as "key,value" strings, so `foo` and `foo{...}` are split
-  // by `foo_bar` ('_' < '{'). The text format requires a family's lines to be
-  // contiguous; strict parsers (OpenMetrics, promtool) reject the output.
-  test.failing("all series of one family are contiguous", () => {
+  test("all series of one family are contiguous, after its HELP and TYPE", () => {
     const metrics = new Metrics();
-    metrics.inc("foo");
-    metrics.inc("foo", { kind: "a" });
-    metrics.inc("foo_bar");
-    const lines = metrics.toPrometheus().split("\n");
-    const fooLines = lines
-      .map((line, index) => ({ line, index }))
-      .filter(({ line }) => line === "foo 1" || line.startsWith("foo{"));
-    expect(fooLines[1]!.index - fooLines[0]!.index).toBe(1);
+    metrics.set("ton_watch_walks", 1);
+    metrics.set("ton_watch_walks_stuck", 1);
+    metrics.inc("ton_watch_walks_started_total", { kind: "head" });
+    metrics.inc("ton_watch_walks_started_total", { kind: "gap" });
+    const lines = metrics.toPrometheus().trimEnd().split("\n");
+    const seen = new Set<string>();
+    let current = "";
+    for (const line of lines) {
+      if (line.startsWith("# HELP ")) {
+        current = line.split(" ")[2]!;
+        expect(seen.has(current)).toBe(false);
+        seen.add(current);
+      } else if (!line.startsWith("#")) {
+        expect(line.split(/[{ ]/, 1)[0]).toBe(current);
+      }
+    }
   });
 });

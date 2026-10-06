@@ -16,7 +16,7 @@ describe("parseCommand", () => {
 
   test("address commands normalize the address", () => {
     expect(parseCommand(["add", A_FRIENDLY])).toEqual({ name: "add", address: A, from: "now" });
-    expect(parseCommand(["add", A, "--from", "genesis"])).toMatchObject({ from: "genesis" });
+    expect(parseCommand(["add", A, "--from", "earliest"])).toMatchObject({ from: "earliest" });
     expect(parseCommand(["add", A, "--from", "42"])).toMatchObject({ from: 42n });
     expect(parseCommand(["remove", A])).toEqual({ name: "remove", address: A, purge: false });
     expect(parseCommand(["remove", "--purge", A_FRIENDLY])).toEqual({
@@ -28,10 +28,10 @@ describe("parseCommand", () => {
 
   test("consumer commands", () => {
     expect(parseCommand(["consumers"])).toEqual({ name: "consumers" });
-    expect(parseCommand(["rewind", "c", "start"])).toEqual({
+    expect(parseCommand(["rewind", "c", "earliest"])).toEqual({
       name: "rewind",
       consumer: "c",
-      to: "start",
+      to: "earliest",
       addresses: undefined,
     });
     expect(
@@ -77,13 +77,13 @@ describe("parseCommand", () => {
   test.each([
     [["frobnicate"], "unknown command: frobnicate (run | deliver |"],
     [["list", "extra"], "usage: ton-watch list"],
-    [["add"], "usage: ton-watch add <address> [--from now|genesis|<lt>]"],
+    [["add"], "usage: ton-watch add <address> [--from now|earliest|<lt>]"],
     [["add", A, "--from"], "--from needs a value"],
     [["add", A, "--from", "soon"], "invalid --from value: soon"],
     [["add", "nope"], "invalid address: nope"],
     [["remove", A, "--force"], "unknown option: --force"],
-    [["rewind", "c"], "usage: ton-watch rewind <consumer> <start|now|lt>"],
-    [["rewind", "c", "later"], "invalid rewind target: later (start | now | <lt>)"],
+    [["rewind", "c"], "usage: ton-watch rewind <consumer> <earliest|now|lt>"],
+    [["rewind", "c", "later"], "invalid rewind target: later (earliest | now | <lt>)"],
     [["rewind", "c", "-1"], "invalid rewind target: -1"],
     [["rewind", "c", "now", "--address", "nope"], "invalid address: nope"],
     [["dead-letters", "a", "b"], "usage: ton-watch dead-letters [<consumer>]"],

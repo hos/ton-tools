@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 
+import { isTonWatchError } from "../../src/core/errors";
 import type { AddressState, Gap, TxId, TxRecord } from "../../src/core/types";
 import { MemoryStore } from "../../src/stores/memory/memory-store";
 import { PgStore } from "../../src/stores/pg/pg-store";
@@ -305,16 +306,17 @@ for (const [name, make] of factories) {
       expect((await store.getAddress(B))?.syncedLt).toBe(MAX_LT);
     });
 
-    test("addresses are opaque, case-sensitive keys", async () => {
+    test("addresses are normalized at the boundary: any case or form is one key", async () => {
       const lower = fakeAddress(0xabc);
       const upper = lower.toUpperCase();
-      await store.addAddress(lower, { startLt: 0n });
-      await store.addAddress(upper, { startLt: 5n });
-      await store.write(lower, chainOf(lower, [100n]));
-      expect((await store.getAddress(upper))?.startLt).toBe(5n);
-      expect((await store.getAddress(upper))?.head).toBeNull();
+      await store.addAddress(upper, { startLt: 0n });
+      await store.write(upper, chainOf(lower, [100n]));
       expect((await store.getAddress(lower))?.head?.lt).toBe(100n);
-      expect((await store.listAddresses()).map((s) => s.address)).toEqual([A, lower, upper]);
+      expect((await store.getAddress(upper))?.address).toBe(lower);
+      expect((await store.read(upper, 0n, 200n, 10)).map((tx) => tx.address)).toEqual([lower]);
+      expect((await store.listAddresses()).map((s) => s.address)).toEqual([A, lower]);
+      const error = await store.getAddress("0:nope").catch((e: unknown) => e);
+      expect(isTonWatchError(error, "INVALID_ADDRESS")).toBe(true);
     });
 
     test("syncedLt from addAddress, and markSynced edge cases", async () => {

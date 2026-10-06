@@ -41,7 +41,7 @@ export async function setupService(): Promise<ServiceHarness> {
   // Replaces the pg.Pool constructor; a class spy is typed for `new`, hence the cast.
   const poolSpy = spyOn(pg, "Pool") as unknown as ServiceHarness["poolSpy"];
   poolSpy.mockImplementation(() => fakePool);
-  const source = Object.assign(new FakeSource(chain), { pool: { stats: () => [] } });
+  const source = Object.assign(new FakeSource(chain), { stats: () => [] });
   const connectSpy = spyOn(LiteSource, "connect") as unknown as ServiceHarness["connectSpy"];
   connectSpy.mockResolvedValue(source);
   // process.exit must not end the test run.
