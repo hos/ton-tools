@@ -5,7 +5,7 @@ All notable changes to ton-watch are documented here. The format follows
 [stability policy](README.md#stability-policy) (semver, where a 0.x minor release
 may break and a patch release never does).
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-07
 
 First release, published on JSR as [`@ton/watch`](https://jsr.io/@ton/watch)
 (Bun only; not on npm). Requires [`@ton/ls`](https://jsr.io/@ton/ls) 0.0.4, which
