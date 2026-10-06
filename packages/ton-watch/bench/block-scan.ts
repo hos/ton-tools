@@ -9,7 +9,7 @@
  *   bun run bench/block-scan.ts [--sizes 10,1000] [--hours 1] [--concurrency 32]
  */
 import { Address, Cell } from "@ton/core";
-import { Functions, type liteServer_allShardsInfo } from "ton-lite-client/dist/schema";
+import { Functions, type liteServer_allShardsInfo } from "ton-lite-client/dist/schema.js";
 
 import { Metrics } from "../src/metrics/metrics";
 import { LiteSource, serverPoolOf } from "../src/source/liteserver/lite-source";

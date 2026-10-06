@@ -117,7 +117,10 @@ export const ENV_VARS = [
     default: "5",
     description: "failed requests before skip / dead-letter gives up",
   },
-] as const satisfies readonly EnvVar[];
+] as const;
+// A separate statement: `as const satisfies` on the declaration defeats
+// `isolatedDeclarations`, which this module is under through `@ton/watch/cli`.
+ENV_VARS satisfies readonly EnvVar[];
 
 export type EnvName = (typeof ENV_VARS)[number]["name"];
 

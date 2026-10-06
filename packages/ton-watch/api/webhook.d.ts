@@ -136,7 +136,7 @@ export interface ExternalAddressJson {
     bits: number;
     value: DecimalString;
 }
-/** Decoded transaction (see `ParsedTransaction` in `ton-watch/parse`). */
+/** Decoded transaction (see `ParsedTransaction` in `@ton/watch/parse`). */
 export interface TransactionJson {
     /** Transaction kind; `generic` for ordinary message-driven transactions. */
     type: "generic" | "storage" | "tick-tock" | "split-prepare" | "split-install" | "merge-prepare" | "merge-install";

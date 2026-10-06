@@ -7,8 +7,8 @@ import type {
   liteServer_blockTransactions,
   liteServer_transactionId3,
   tonNode_blockIdExt,
-} from "ton-lite-client/dist/schema";
-import { Functions } from "ton-lite-client/dist/schema";
+} from "ton-lite-client/dist/schema.js";
+import { Functions } from "ton-lite-client/dist/schema.js";
 
 import { validatePage } from "../../core/chain";
 import { SourceError } from "../../core/errors";

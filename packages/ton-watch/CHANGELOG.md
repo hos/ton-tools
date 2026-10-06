@@ -7,7 +7,8 @@ may break and a patch release never does).
 
 ## [0.1.0] - Unreleased
 
-First release.
+First release, published on JSR as [`@ton/watch`](https://jsr.io/@ton/watch)
+(Bun only; not on npm).
 
 ### Added
 
@@ -33,17 +34,18 @@ First release.
   `ConsumerLockedError`, `CursorConflictError`, `MigrationError`, `SourceError`.
 - `health({ maxLagSeconds })`, `status()`, `watermark()`; `stop()` (pause) vs
   `close()` (final, closes store and source).
-- `ton-watch/parse`: transaction decoding — outcome and bounce flags, comments,
+- `@ton/watch/parse`: transaction decoding — outcome and bounce flags, comments,
   TEP-74 jettons, TEP-62 NFTs, `incomingPayment` and `incomingJettonTransfer`.
-- `ton-watch/webhook`: receiver side of the service webhooks — `verifySignature`
+- `@ton/watch/webhook`: receiver side of the service webhooks — `verifySignature`
   (several secrets, for rotation), header names, `WebhookPayload` types.
-- `ton-watch/toncenter` (experimental): toncenter as a history plug-in, in
+- `@ton/watch/toncenter` (experimental): toncenter as a history plug-in, in
   `fallback` or `boost` mode.
-- `ton-watch/advanced` (experimental): standalone `Indexer` and `Consumer`, the
+- `@ton/watch/advanced` (experimental): standalone `Indexer` and `Consumer`, the
   `Store` and `TxSource` contracts, chain helpers.
 - Service and CLI (`ton-watch`): `run`, `deliver`, `add`, `remove`, `list`, and
   consumer management (`consumers`, `rewind`, `dead-letters`, `replay`, `discard`,
   `delete-consumer`); configuration through `TON_WATCH_*` environment variables.
+  Run from the installed package through `run()` in `@ton/watch/cli`.
 - Webhook delivery (payload `version: 1`): signed with HMAC-SHA256
   (`TON-Watch-Signature`, rotation via `TON_WATCH_WEBHOOK_SECRET_PREVIOUS`),
   `Idempotency-Key`, per-target ordering, retry, skip or dead-letter.

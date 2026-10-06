@@ -1,4 +1,4 @@
-# ton-watch
+# @ton/watch
 
 Embeddable TON transaction indexer for an explicit set of addresses. Fetches each
 address's transaction chain straight from liteservers — in any order, in parallel,
@@ -11,7 +11,7 @@ permanent jam.
 
 ```ts
 import { Pool } from "pg";
-import { LiteSource, PgStore, TonWatch } from "ton-watch";
+import { LiteSource, PgStore, TonWatch } from "@ton/watch";
 
 const pool = new Pool({ connectionString: process.env.TON_WATCH_DATABASE_URL });
 const watch = new TonWatch({
@@ -35,12 +35,34 @@ await watch.close();
 See [`examples/incoming-payments.ts`](examples/incoming-payments.ts) for a complete
 consumer.
 
-Requires [Bun](https://bun.sh) ≥ 1.4: the package ships TypeScript sources. `pg` is an
-optional peer dependency (needed for `PgStore` with a `pg.Pool` and for the service);
-`@ton/core` is a peer dependency.
+## Install
+
+Published on [JSR](https://jsr.io/@ton/watch) only (not on npm), for
+[Bun](https://bun.sh) ≥ 1.4:
+
+```sh
+bunx jsr add @ton/watch
+```
+
+`jsr add` maps `@ton/watch` to JSR's npm mirror (`npm:@jsr/ton__watch`, with an
+`.npmrc` pointing `@jsr` at `npm.jsr.io`), so imports are the plain package
+name. `@ton/core` (^0.63), `pg`, `ton-lite-client` and
+[`@ton/ls`](https://jsr.io/@ton/ls) come along as regular dependencies (JSR has
+no peer or optional ones); if you import `@ton/core` yourself, add it in a
+compatible range so there is one copy.
+
+```ts
+import { LiteSource, PgStore, TonWatch } from "@ton/watch";
+import { incomingPayment } from "@ton/watch/parse";
+import { verifySignature } from "@ton/watch/webhook";
+```
+
+Bun only: Node and Deno are not supported. To run the [service](#service) from
+the installed package, see [Running the service](#running-the-service).
 
 ## Contents
 
+- [Install](#install)
 - [How it works](#how-it-works)
 - [Library API](#library-api): [`TonWatch`](#tonwatch), [addresses](#addresses),
   [consumers](#consumer-api), [errors](#errors), [entry points](#entry-points)
@@ -280,7 +302,7 @@ code is only removed or repurposed in a major one. Match with `isTonWatchError`,
 which (unlike `instanceof`) also recognizes errors from another copy of the package:
 
 ```ts
-import { isTonWatchError } from "ton-watch";
+import { isTonWatchError } from "@ton/watch";
 
 try {
   await watch.start();
@@ -312,25 +334,26 @@ The underlying error, if any, is the standard `cause`.
 
 | import | |
 |---|---|
-| `ton-watch` | `TonWatch`, `PgStore`, `MemoryStore`, `LiteSource`, `Metrics`, errors, types |
-| `ton-watch/parse` | [transaction decoding](#decoding-transactions) |
-| `ton-watch/webhook` | receiver side of the [webhooks](#webhooks): `verifySignature`, header names, `WebhookPayload` types; depends only on `node:crypto` |
-| `ton-watch/toncenter` | the [toncenter history plug-in](#optional-toncenter-history-plug-in-experimental) (experimental) |
-| `ton-watch/advanced` | **experimental**: the building blocks behind `TonWatch` — standalone `Indexer` and `Consumer`, the `Store`, `ConsumerStateStore`, `TxSource` and `HistorySource` contracts, chain helpers (`validatePage`, `analyzeChain`, `recordFromCell`, `classifyError`) |
+| `@ton/watch` | `TonWatch`, `PgStore`, `MemoryStore`, `LiteSource`, `Metrics`, errors, types |
+| `@ton/watch/parse` | [transaction decoding](#decoding-transactions) |
+| `@ton/watch/webhook` | receiver side of the [webhooks](#webhooks): `verifySignature`, header names, `WebhookPayload` types; depends only on `node:crypto` |
+| `@ton/watch/toncenter` | the [toncenter history plug-in](#optional-toncenter-history-plug-in-experimental) (experimental) |
+| `@ton/watch/cli` | `run()`: the [service and CLI](#running-the-service) as a module |
+| `@ton/watch/advanced` | **experimental**: the building blocks behind `TonWatch` — standalone `Indexer` and `Consumer`, the `Store`, `ConsumerStateStore`, `TxSource` and `HistorySource` contracts, chain helpers (`validatePage`, `analyzeChain`, `recordFromCell`, `classifyError`) |
 
-`ton-watch/advanced` may change in any 0.x minor release. **Custom `Store`,
+`@ton/watch/advanced` may change in any 0.x minor release. **Custom `Store`,
 `ConsumerStateStore` and `TxSource` implementations are unsupported in 0.x**:
 methods may be added to these interfaces in minor versions. Use `PgStore` or
 `MemoryStore`, and `LiteSource`.
 
 ## Decoding transactions
 
-`ton-watch/parse` decodes a transaction (`tx` from a handler, or any `@ton/core`
+`@ton/watch/parse` decodes a transaction (`tx` from a handler, or any `@ton/core`
 `Transaction`): outcome and bounce flags, comments, TEP-74 jetton and TEP-62 NFT
 messages. Two helpers answer what payment processing asks:
 
 ```ts
-import { incomingJettonTransfer, incomingPayment } from "ton-watch/parse";
+import { incomingJettonTransfer, incomingPayment } from "@ton/watch/parse";
 
 const payment = incomingPayment(tx);
 // TON credited by an inbound internal message: not outgoing, not a bounce, not
@@ -357,7 +380,7 @@ another account (hash or workchain), and a `jettonWallet` that is not an address
 
 ## Service
 
-`ton-watch run` (`bun run start` in this repo) runs the indexer, and delivers to the
+`ton-watch run` runs the indexer, and delivers to the
 configured [webhooks](#webhooks), until SIGINT/SIGTERM, then finishes in-flight
 work and exits (0; 1 if stopping fails or takes over 30s; a second signal exits 1
 at once). Configuration is validated before connecting to anything. The HTTP port is
@@ -374,6 +397,27 @@ ton-watch remove <address> [--purge]
 ton-watch list                          # JSON (stable, see below)
 ton-watch consumers                     # and other consumer commands (below)
 ```
+
+### Running the service
+
+JSR packages have no `bin`, so `ton-watch` is a one-line file in your project
+that hands the command line to `@ton/watch/cli`:
+
+```ts
+// ton-watch.ts
+import { run } from "@ton/watch/cli";
+
+await run();
+```
+
+```sh
+TON_WATCH_DATABASE_URL=postgres://… bun run ton-watch.ts run
+bun run ton-watch.ts add EQ… --from now
+```
+
+`run(argv?, env?)` defaults to `process.argv.slice(2)` and `process.env`. In a
+checkout of this repository: `bun run start` (= `ton-watch run`) and
+`bun run cli <command>`. Below, `ton-watch` stands for either.
 
 ### Configuration
 
@@ -548,7 +592,7 @@ ton-watch/<version>` and these headers:
 | `TON-Watch-Signature` | `t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>[,v1=…]`, one `v1` per secret; only when a secret is set |
 | `TON-Watch-Replay` | `1` on a replayed dead letter; absent otherwise |
 
-**Payload, version 1** (`WebhookPayload` in `ton-watch/webhook`). A real body, from
+**Payload, version 1** (`WebhookPayload` in `@ton/watch/webhook`). A real body, from
 `tests/fixtures/golden/webhook-payload-ton-transfer-comment.json` (`boc` shortened):
 
 ```json
@@ -607,7 +651,7 @@ Other golden bodies (jetton notification, NFT transfer, bounces) are in
 lowercase raw (`<workchain>:<hex>`); cells base64 BOCs, other binary data base64;
 unix times, opcodes, exit codes and counts JSON numbers. `prev` is null for the
 account's first transaction; `parsed` is null if the BOC could not be decoded. The
-field names in `parsed` follow `ParsedTransaction` in [`ton-watch/parse`](src/parse/types.ts).
+field names in `parsed` follow `ParsedTransaction` in [`@ton/watch/parse`](src/parse/types.ts).
 
 **Compatibility rules for receivers.**
 
@@ -628,11 +672,11 @@ all (e.g. one that timed out), answer 2xx without processing it again.
 (before any JSON parsing), compare in constant time, and reject old timestamps so
 a captured request cannot be replayed later. Every retry is signed afresh, so a
 five-minute window never rejects a legitimate retry. Pair it with the idempotency
-key to drop replays inside the window. `ton-watch/webhook` does all of this and
+key to drop replays inside the window. `@ton/watch/webhook` does all of this and
 depends only on `node:crypto`:
 
 ```ts
-import { SIGNATURE_HEADER, verifySignature, type WebhookPayload } from "ton-watch/webhook";
+import { SIGNATURE_HEADER, verifySignature, type WebhookPayload } from "@ton/watch/webhook";
 
 // e.g. Bun.serve / fetch handlers:
 const body = await request.text();
@@ -744,7 +788,7 @@ changes.
 > and chain-checked, so a wrong answer is refetched, never stored.
 
 ```ts
-import { ToncenterHistory } from "ton-watch/toncenter";
+import { ToncenterHistory } from "@ton/watch/toncenter";
 
 new TonWatch({
   store,
@@ -771,13 +815,13 @@ new TonWatch({
 - Service: `TON_WATCH_HISTORY=toncenter`, `TON_WATCH_HISTORY_MODE=fallback|boost`,
   `TON_WATCH_TONCENTER_API_KEY`, `TON_WATCH_TONCENTER_ENDPOINT`.
 - Another provider plugs in the same way by implementing `HistorySource` from
-  `ton-watch/advanced` (`getTransactions(address, from, count)`, optionally `busy()`).
+  `@ton/watch/advanced` (`getTransactions(address, from, count)`, optionally `busy()`).
 
 ## Storage
 
 `PgStore` is the reference store (works with `pg` and PGlite); `MemoryStore` keeps
 everything in process memory, for tests and short-lived tools. Both implement the
-`Store` contract (`ton-watch/advanced`, experimental; custom implementations are
+`Store` contract (`@ton/watch/advanced`, experimental; custom implementations are
 unsupported in 0.x).
 
 `PgStore` keeps its tables in schema `ton_watch` (option `schema`, env
@@ -869,7 +913,8 @@ Breaking changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 **Covered:**
 
-- the exports of `ton-watch`, `ton-watch/webhook` and `ton-watch/parse` (runtime
+- the exports of `@ton/watch`, `@ton/watch/webhook`, `@ton/watch/parse` and
+  `@ton/watch/cli` (runtime
   names and types; `api/*.d.ts` snapshots every one);
 - error codes (`TonWatchErrorCode`) — not messages;
 - the webhook payload, `version: 1`, and its headers;
@@ -880,8 +925,8 @@ Breaking changes are listed in [CHANGELOG.md](CHANGELOG.md).
 - the database schema, changed only through [migrations](docs/migrations.md), and
   the [stable columns](#querying-the-tables).
 
-**Not covered:** `ton-watch/advanced` (experimental; custom `Store` and `TxSource`
-implementations are unsupported in 0.x), `ton-watch/toncenter` (experimental),
+**Not covered:** `@ton/watch/advanced` (experimental; custom `Store` and `TxSource`
+implementations are unsupported in 0.x), `@ton/watch/toncenter` (experimental),
 `/status`, log output, error messages, and the internal tables and columns.
 
 **Deprecation.** Before something covered is removed or changed, it is marked
@@ -911,8 +956,10 @@ Source layout (`src/`): `core/` domain types, errors and chain-link rules,
 `indexer/` (the `Indexer` orchestrator plus walk scheduling, fetching, splitting,
 change detection and maintenance), `consumer/`, `source/` (`TxSource`,
 `liteserver/`), `stores/` (`memory/`, `pg/` with `migrations.ts` and `migrator.ts`),
-`parse/`, `webhook/` (receiver side), `plugins/toncenter/`, `service/` + `bin/` (the
-CLI), `metrics/`, `util/`. Tests mirror it.
+`parse/`, `webhook/` (receiver side), `plugins/toncenter/`, `service/` + `cli.ts` +
+`bin/` (the CLI), `metrics/`, `util/`. Tests mirror it.
+
+Releasing (version bumps, tags, JSR publishing): [RELEASING.md](../../RELEASING.md).
 
 Benchmarks (`bench/`, mainnet): `accounts.ts` picks the address sets, then
 `archive-depth.ts`, `backfill.ts`, `block-scan.ts`, `outage.ts`, `idle.ts`;

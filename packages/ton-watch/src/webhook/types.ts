@@ -74,7 +74,7 @@ export interface ExternalAddressJson {
   value: DecimalString;
 }
 
-/** Decoded transaction (see `ParsedTransaction` in `ton-watch/parse`). */
+/** Decoded transaction (see `ParsedTransaction` in `@ton/watch/parse`). */
 export interface TransactionJson {
   /** Transaction kind; `generic` for ordinary message-driven transactions. */
   type:

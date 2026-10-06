@@ -2,14 +2,14 @@ import type { TxId, TxRecord } from "../core/types";
 
 /**
  * Optional plug-in that serves account history with bigger pages and deeper
- * retention than liteservers (e.g. `ton-watch/toncenter`). The indexer only ever
+ * retention than liteservers (e.g. `@ton/watch/toncenter`). The indexer only ever
  * asks it for the same thing it asks liteservers — "transactions of this address,
  * newest first, starting at this one" — and checks every page the same way, so a
  * history source can make fetching faster or reach further back, but cannot change
  * what gets stored.
  *
  * @experimental Methods may be added in minor 0.x versions. Exported from
- * `ton-watch/advanced`.
+ * `@ton/watch/advanced`.
  */
 export interface HistorySource {
   readonly name: string;

@@ -29,7 +29,7 @@ const SHUTDOWN_TIMEOUT_MS = 30_000;
  * Runs a `ton-watch` command (see `commands.ts`). Arguments and configuration are
  * validated before connecting to anything.
  */
-export async function main(argv: string[], env: Record<string, string | undefined>) {
+export async function main(argv: string[], env: Record<string, string | undefined>): Promise<void> {
   const command = parseCommand(argv);
   const config = configFromEnv(env);
   if (command.name === "deliver" && config.webhooks.length === 0) {

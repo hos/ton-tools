@@ -8,10 +8,10 @@
  * (`LiteSource`), add addresses, and register consumers with `process()`.
  *
  * Other entry points:
- * - `ton-watch/toncenter`: the toncenter history plug-in.
- * - `ton-watch/parse`: typed views of transactions (transfers, jettons, NFTs).
- * - `ton-watch/webhook`: verifying the service's webhook deliveries.
- * - `ton-watch/advanced` (experimental): the building blocks behind `TonWatch`,
+ * - `@ton/watch/toncenter`: the toncenter history plug-in.
+ * - `@ton/watch/parse`: typed views of transactions (transfers, jettons, NFTs).
+ * - `@ton/watch/webhook`: verifying the service's webhook deliveries.
+ * - `@ton/watch/advanced` (experimental): the building blocks behind `TonWatch`,
  *   for custom stores, sources and setups.
  *
  * Every error ton-watch throws on purpose is a `TonWatchError`; match on its
@@ -71,7 +71,7 @@ export interface ConsumerDeps {
  * Emits `handlerError`, `skip` and `deadLetter` (see `ConsumerEventMap`).
  *
  * Get one from `TonWatch.process()`. Constructing one directly (exported from
- * `ton-watch/advanced`) is experimental.
+ * `@ton/watch/advanced`) is experimental.
  */
 export declare class Consumer<Db = unknown> extends EventEmitter<ConsumerEventMap> {
     readonly name: string;
@@ -655,7 +655,7 @@ export interface IndexingOptions {
      * `false` disables it.
      */
     split?: SplitOptions | false;
-    /** Optional history plug-in (see `HistorySource`), e.g. `ton-watch/toncenter`. */
+    /** Optional history plug-in (see `HistorySource`), e.g. `@ton/watch/toncenter`. */
     history?: HistoryOptions;
     /**
      * Export per-address gauges (`ton_watch_address_lag_seconds`,
@@ -665,7 +665,7 @@ export interface IndexingOptions {
     addressMetrics?: boolean;
 }
 /**
- * Options of a standalone `Indexer` (`ton-watch/advanced`).
+ * Options of a standalone `Indexer` (`@ton/watch/advanced`).
  * @experimental
  */
 export interface IndexerOptions<Db = unknown> extends IndexingOptions {
@@ -1050,14 +1050,14 @@ export declare function closedLabel<T extends string>(allowed: readonly T[], val
 import type { TxId, TxRecord } from "../core/types";
 /**
  * Optional plug-in that serves account history with bigger pages and deeper
- * retention than liteservers (e.g. `ton-watch/toncenter`). The indexer only ever
+ * retention than liteservers (e.g. `@ton/watch/toncenter`). The indexer only ever
  * asks it for the same thing it asks liteservers — "transactions of this address,
  * newest first, starting at this one" — and checks every page the same way, so a
  * history source can make fetching faster or reach further back, but cannot change
  * what gets stored.
  *
  * @experimental Methods may be added in minor 0.x versions. Exported from
- * `ton-watch/advanced`.
+ * `@ton/watch/advanced`.
  */
 export interface HistorySource {
     readonly name: string;
@@ -1272,7 +1272,7 @@ export interface ChainTip {
  * use a fake. Every method may throw a `SourceError`.
  *
  * @experimental Custom implementations are unsupported in 0.x: methods may be
- * added in minor versions. Exported from `ton-watch/advanced`.
+ * added in minor versions. Exported from `@ton/watch/advanced`.
  */
 export interface TxSource {
     getTip(): Promise<ChainTip>;

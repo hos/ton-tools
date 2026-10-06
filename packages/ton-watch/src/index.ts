@@ -5,10 +5,10 @@
  * (`LiteSource`), add addresses, and register consumers with `process()`.
  *
  * Other entry points:
- * - `ton-watch/toncenter`: the toncenter history plug-in.
- * - `ton-watch/parse`: typed views of transactions (transfers, jettons, NFTs).
- * - `ton-watch/webhook`: verifying the service's webhook deliveries.
- * - `ton-watch/advanced` (experimental): the building blocks behind `TonWatch`,
+ * - `@ton/watch/toncenter`: the toncenter history plug-in.
+ * - `@ton/watch/parse`: typed views of transactions (transfers, jettons, NFTs).
+ * - `@ton/watch/webhook`: verifying the service's webhook deliveries.
+ * - `@ton/watch/advanced` (experimental): the building blocks behind `TonWatch`,
  *   for custom stores, sources and setups.
  *
  * Every error ton-watch throws on purpose is a `TonWatchError`; match on its

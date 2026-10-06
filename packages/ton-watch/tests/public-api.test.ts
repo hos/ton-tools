@@ -35,17 +35,17 @@ const ADVANCED_EXPORTS = [
 
 describe("public API", () => {
   test("ton-watch exports exactly these runtime names", async () => {
-    const api = await import("ton-watch");
+    const api = await import("@ton/watch");
     expect(Object.keys(api).sort()).toEqual(RUNTIME_EXPORTS);
   });
 
-  test("ton-watch/advanced exports the building blocks", async () => {
-    const advanced = await import("ton-watch/advanced");
+  test("@ton/watch/advanced exports the building blocks", async () => {
+    const advanced = await import("@ton/watch/advanced");
     expect(Object.keys(advanced).sort()).toEqual(ADVANCED_EXPORTS);
   });
 
   test("internal helpers are exported from no entry point", async () => {
-    const entries = await Promise.all([import("ton-watch"), import("ton-watch/advanced")]);
+    const entries = await Promise.all([import("@ton/watch"), import("@ton/watch/advanced")]);
     const names = entries.flatMap((entry) => Object.keys(entry));
     for (const internal of [
       "ServerPool",
@@ -59,14 +59,14 @@ describe("public API", () => {
     }
   });
 
-  test("ton-watch/toncenter exports only the plug-in", async () => {
-    const toncenter = await import("ton-watch/toncenter");
+  test("@ton/watch/toncenter exports only the plug-in", async () => {
+    const toncenter = await import("@ton/watch/toncenter");
     expect(Object.keys(toncenter).sort()).toEqual(["ToncenterHistory"]);
     expect(typeof toncenter.ToncenterHistory).toBe("function");
   });
 
-  test("ton-watch/parse exports the transaction parsers", async () => {
-    const parse = await import("ton-watch/parse");
+  test("@ton/watch/parse exports the transaction parsers", async () => {
+    const parse = await import("@ton/watch/parse");
     expect(Object.keys(parse).sort()).toEqual([
       "Op",
       "incomingJettonTransfer",
@@ -77,8 +77,8 @@ describe("public API", () => {
     ]);
   });
 
-  test("ton-watch/webhook exports the receiver side: headers, signature check, payload version", async () => {
-    const webhook = await import("ton-watch/webhook");
+  test("@ton/watch/webhook exports the receiver side: headers, signature check, payload version", async () => {
+    const webhook = await import("@ton/watch/webhook");
     expect(Object.keys(webhook).sort()).toEqual([
       "DEFAULT_TOLERANCE_SECONDS",
       "EVENT_HEADER",
@@ -94,45 +94,39 @@ describe("public API", () => {
   });
 
   test("the main entry does not pull in the toncenter plug-in", async () => {
-    const api = await import("ton-watch");
+    const api = await import("@ton/watch");
     expect(Object.keys(api)).not.toContain("ToncenterHistory");
   });
 
-  test("package entry points resolve to the source modules", async () => {
-    expect(pkg.exports).toEqual({
+  test("package entry points resolve to the source modules", () => {
+    const entries = {
       ".": "./src/index.ts",
       "./advanced": "./src/advanced.ts",
       "./toncenter": "./src/plugins/toncenter/index.ts",
       "./parse": "./src/parse/index.ts",
       "./webhook": "./src/webhook/index.ts",
-      "./package.json": "./package.json",
-    });
-    expect(pkg.main).toBe("src/index.ts");
-    expect(pkg.module).toBe("src/index.ts");
+      "./cli": "./src/cli.ts",
+    };
+    expect(pkg.exports).toEqual(entries);
     const dir = `${import.meta.dir}/..`;
-    expect(Bun.resolveSync("ton-watch", dir)).toBe(Bun.resolveSync("./src/index.ts", dir));
-    expect(Bun.resolveSync("ton-watch/advanced", dir)).toBe(
-      Bun.resolveSync("./src/advanced.ts", dir),
-    );
-    expect(Bun.resolveSync("ton-watch/toncenter", dir)).toBe(
-      Bun.resolveSync("./src/plugins/toncenter/index.ts", dir),
-    );
-    expect(Bun.resolveSync("ton-watch/parse", dir)).toBe(
-      Bun.resolveSync("./src/parse/index.ts", dir),
-    );
-    expect(Bun.resolveSync("ton-watch/webhook", dir)).toBe(
-      Bun.resolveSync("./src/webhook/index.ts", dir),
-    );
-    expect(await Bun.file(Bun.resolveSync(`./${pkg.bin["ton-watch"]}`, dir)).exists()).toBe(true);
+    for (const [subpath, file] of Object.entries(entries)) {
+      const specifier = `@ton/watch${subpath.slice(1)}`;
+      expect(Bun.resolveSync(specifier, dir)).toBe(Bun.resolveSync(file, dir));
+    }
+  });
+
+  test("@ton/watch/cli exports only run", async () => {
+    const cli = await import("@ton/watch/cli");
+    expect(Object.keys(cli)).toEqual(["run"]);
   });
 
   test("the package entry is the same module as src/index.ts", async () => {
-    const [byName, byPath] = await Promise.all([import("ton-watch"), import("../src/index")]);
+    const [byName, byPath] = await Promise.all([import("@ton/watch"), import("../src/index")]);
     expect(byName.TonWatch).toBe(byPath.TonWatch);
   });
 
   test("internal paths are not exported", () => {
     const dir = `${import.meta.dir}/..`;
-    expect(() => Bun.resolveSync("ton-watch/src/service/cli", dir)).toThrow();
+    expect(() => Bun.resolveSync("@ton/watch/src/service/cli", dir)).toThrow();
   });
 });

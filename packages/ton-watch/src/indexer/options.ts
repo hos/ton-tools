@@ -51,7 +51,7 @@ export interface IndexingOptions {
    * `false` disables it.
    */
   split?: SplitOptions | false;
-  /** Optional history plug-in (see `HistorySource`), e.g. `ton-watch/toncenter`. */
+  /** Optional history plug-in (see `HistorySource`), e.g. `@ton/watch/toncenter`. */
   history?: HistoryOptions;
   /**
    * Export per-address gauges (`ton_watch_address_lag_seconds`,
@@ -62,7 +62,7 @@ export interface IndexingOptions {
 }
 
 /**
- * Options of a standalone `Indexer` (`ton-watch/advanced`).
+ * Options of a standalone `Indexer` (`@ton/watch/advanced`).
  * @experimental
  */
 export interface IndexerOptions<Db = unknown> extends IndexingOptions {

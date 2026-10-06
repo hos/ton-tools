@@ -16,7 +16,7 @@ const hours = Number(arg("hours", "2"));
 const concurrencies = arg("concurrency", "1,32")!.split(",").map(Number);
 const label = arg("label", "current")!;
 const split = arg("split", "on") !== "off";
-// --history toncenter[:fallback|boost] plugs in ton-watch/toncenter (TONCENTER_API_KEY optional).
+// --history toncenter[:fallback|boost] plugs in @ton/watch/toncenter (TONCENTER_API_KEY optional).
 const historyArg = arg("history");
 const historyMode = (historyArg?.split(":")[1] ?? "boost") as "fallback" | "boost";
 const makeHistory = async () =>

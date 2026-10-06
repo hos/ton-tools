@@ -104,7 +104,7 @@ export interface ConsumerDeps {
  * Emits `handlerError`, `skip` and `deadLetter` (see `ConsumerEventMap`).
  *
  * Get one from `TonWatch.process()`. Constructing one directly (exported from
- * `ton-watch/advanced`) is experimental.
+ * `@ton/watch/advanced`) is experimental.
  */
 export class Consumer<Db = unknown> extends EventEmitter<ConsumerEventMap> {
   readonly name: string;

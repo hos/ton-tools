@@ -8,8 +8,8 @@ import type {
   liteServer_transactionId,
   liteServer_transactionId3,
   tonNode_blockIdExt,
-} from "ton-lite-client/dist/schema";
-import { Functions } from "ton-lite-client/dist/schema";
+} from "ton-lite-client/dist/schema.js";
+import { Functions } from "ton-lite-client/dist/schema.js";
 
 import { SourceError } from "../../src/core/errors";
 import type { TxId } from "../../src/core/types";

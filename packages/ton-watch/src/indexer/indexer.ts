@@ -37,7 +37,7 @@ const DEFAULT_SYNC_ROUNDS = 1000;
  * Emits `tick`, `frontier`, `synced` and `fetchError` (see `IndexerEventMap`).
  *
  * Most applications use `TonWatch`, which wraps one. Exported from
- * `ton-watch/advanced` for custom setups.
+ * `@ton/watch/advanced` for custom setups.
  * @experimental
  */
 export class Indexer extends EventEmitter<IndexerEventMap> {

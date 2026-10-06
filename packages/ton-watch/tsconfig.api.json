@@ -13,6 +13,7 @@
     "src/advanced.ts",
     "src/plugins/toncenter/index.ts",
     "src/parse/index.ts",
-    "src/webhook/index.ts"
+    "src/webhook/index.ts",
+    "src/cli.ts"
   ]
 }

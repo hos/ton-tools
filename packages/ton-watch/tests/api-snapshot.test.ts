@@ -23,6 +23,7 @@ const ENTRIES: Record<string, string> = {
   toncenter: "plugins/toncenter/index.d.ts",
   parse: "parse/index.d.ts",
   webhook: "webhook/index.d.ts",
+  cli: "cli.d.ts",
 };
 
 const RELATIVE_SPECIFIER = /(?:from\s+|import\()"(\.{1,2}\/[^"]+)"/g;

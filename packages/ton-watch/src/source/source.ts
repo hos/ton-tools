@@ -37,7 +37,7 @@ export interface ChainTip {
  * use a fake. Every method may throw a `SourceError`.
  *
  * @experimental Custom implementations are unsupported in 0.x: methods may be
- * added in minor versions. Exported from `ton-watch/advanced`.
+ * added in minor versions. Exported from `@ton/watch/advanced`.
  */
 export interface TxSource {
   getTip(): Promise<ChainTip>;
