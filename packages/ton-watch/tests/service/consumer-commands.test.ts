@@ -119,8 +119,8 @@ describe("ton-watch consumers", () => {
   });
 });
 
-describe("ton-watch dead-letters, resolve", () => {
-  test("lists dead letters (all or one consumer's) with hex hashes, and resolves one", async () => {
+describe("ton-watch dead-letters, discard", () => {
+  test("lists dead letters (all or one consumer's) with hex hashes, and discards one", async () => {
     const { poison } = await seedConsumers();
     const letters = await printed<Record<string, unknown>[]>(["dead-letters"]);
     expect(letters).toEqual([
@@ -137,11 +137,11 @@ describe("ton-watch dead-letters, resolve", () => {
     ]);
     expect(await printed<unknown[]>(["dead-letters", "audit"])).toEqual([]);
 
-    expect(await logged(["resolve", "payments", B, String(poison)])).toContain(
-      `resolved dead letter ${B} lt ${poison} of payments`,
+    expect(await logged(["discard", "payments", B, String(poison)])).toContain(
+      `discarded dead letter ${B} lt ${poison} of payments`,
     );
     expect(await store.listDeadLetters()).toEqual([]);
-    await expect(main(["resolve", "payments", B, String(poison)], env())).rejects.toThrow(
+    await expect(main(["discard", "payments", B, String(poison)], env())).rejects.toThrow(
       `consumer payments has no dead letter at ${B} lt ${poison}`,
     );
     expect(h.connectSpy).not.toHaveBeenCalled();

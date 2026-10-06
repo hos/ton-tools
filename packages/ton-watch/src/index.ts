@@ -9,7 +9,7 @@
  */
 
 export { Consumer, type ConsumerDeps } from "./consumer/consumer";
-export { ConsumerLockedError } from "./consumer/errors";
+export { ConsumerLockedError, CursorConflictError } from "./consumer/errors";
 export type {
   AddressLag,
   ConsumerEventMap,

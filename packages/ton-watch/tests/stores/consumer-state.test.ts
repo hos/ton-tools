@@ -124,6 +124,70 @@ for (const target of storeTargets) {
       expect((await store.listDeadLetters({ consumer: "c" })).length).toBe(2);
     });
 
+    test("compareAndSetCursor moves the cursor only from where it is expected", async () => {
+      expect(await store.compareAndSetCursor("c", A, 1n, 2n)).toBe(false);
+      expect(await store.getCursor("c", A)).toBeNull();
+      expect(await store.compareAndSetCursor("c", A, null, 2n)).toBe(true);
+      expect(await store.compareAndSetCursor("c", A, null, 3n)).toBe(false);
+      expect(await store.getCursor("c", A)).toBe(2n);
+
+      await store.recordFailure("c", A, "boom");
+      expect(await store.compareAndSetCursor("c", A, 1n, 5n)).toBe(false);
+      expect((await store.listCursors("c"))[0]).toMatchObject({ lt: 2n, attempts: 1 });
+      expect(await store.compareAndSetCursor("c", A, 2n, 5n)).toBe(true);
+      expect((await store.listCursors("c"))[0]).toMatchObject({
+        lt: 5n,
+        attempts: 0,
+        lastError: null,
+        firstFailureAt: null,
+        lastFailureAt: null,
+      });
+      // Backwards too, and per (consumer, address).
+      expect(await store.compareAndSetCursor("c", A, 5n, 1n)).toBe(true);
+      expect(await store.compareAndSetCursor("c", B, 1n, 2n)).toBe(false);
+      expect(await store.compareAndSetCursor("d", A, 1n, 2n)).toBe(false);
+      expect(await store.getCursor("c", A)).toBe(1n);
+    });
+
+    test("updateDeadLetter replaces an existing dead letter and never inserts one", async () => {
+      expect(await store.updateDeadLetter(letter())).toBe(false);
+      expect(await store.listDeadLetters()).toEqual([]);
+
+      await store.putDeadLetter(letter());
+      const updated = letter({ error: "again", attempts: 4, hash: Buffer.alloc(32, 9) });
+      expect(await store.updateDeadLetter(updated)).toBe(true);
+      expect(await store.listDeadLetters()).toEqual([updated]);
+
+      await store.deleteDeadLetter("c", A, 5n);
+      expect(await store.updateDeadLetter(updated)).toBe(false);
+      expect(await store.listDeadLetters()).toEqual([]);
+    });
+
+    test.skipIf(!target.realPostgres)(
+      "compareAndSetCursor: of two concurrent transactions from one position, one wins",
+      async () => {
+        const [one, two] = await target.makePair();
+        await one.addAddress(A, { startLt: 0n });
+        await one.setCursor("c", A, 1n);
+        let commitFirst!: () => void;
+        const firstMoved = Promise.withResolvers<boolean>();
+        const first = one.transaction!(async ({ store: tx }) => {
+          firstMoved.resolve(await tx.compareAndSetCursor("c", A, 1n, 2n));
+          await new Promise<void>((resolve) => {
+            commitFirst = resolve;
+          });
+        });
+        expect(await firstMoved.promise).toBe(true);
+        // Blocks on the first transaction's row lock, then re-checks the committed row.
+        const second = two.transaction!(({ store: tx }) => tx.compareAndSetCursor("c", A, 1n, 3n));
+        await Bun.sleep(50);
+        commitFirst();
+        await first;
+        expect(await second).toBe(false);
+        expect(await two.getCursor("c", A)).toBe(2n);
+      },
+    );
+
     test("purging an address drops its cursors and dead letters", async () => {
       await store.setCursor("c", A, 1n);
       await store.putDeadLetter(letter());

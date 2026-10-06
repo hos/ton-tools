@@ -136,6 +136,27 @@ describe("WalkSplitter.maybeSplit", () => {
 });
 
 describe("WalkSplitter split points", () => {
+  test("settled() waits for split points still being looked up, then for the split", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const s = setup(async (lt) => {
+      await gate;
+      return id(lt);
+    });
+    s.splitter.maybeSplit(s.walk);
+    let settled = false;
+    const done = s.splitter.settled().then(() => {
+      settled = true;
+    });
+    await flush();
+    expect(settled).toBe(false);
+    release();
+    await done;
+    expect(s.scheduler.all().length).toBeGreaterThan(1);
+  });
+
   test("a failing findTxNear is counted and its point skipped; the others still split", async () => {
     const s = setup(async (lt) => {
       if (lt === 3_000n) throw new Error("LITE_SERVER_UNKNOWN: timeout");

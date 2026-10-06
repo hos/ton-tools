@@ -18,7 +18,7 @@ export type ConsumerCommand =
   | { name: "rewind"; consumer: string; to: RewindTarget; addresses?: string[] }
   | { name: "dead-letters"; consumer?: string }
   | { name: "replay"; consumer: string; address: string; lt: bigint }
-  | { name: "resolve"; consumer: string; address: string; lt: bigint }
+  | { name: "discard"; consumer: string; address: string; lt: bigint }
   | { name: "delete-consumer"; consumer: string };
 
 export const USAGE: Record<Command["name"], string> = {
@@ -31,7 +31,7 @@ export const USAGE: Record<Command["name"], string> = {
   rewind: "ton-watch rewind <consumer> <start|now|lt> [--address <address>]...",
   "dead-letters": "ton-watch dead-letters [<consumer>]",
   replay: "ton-watch replay <consumer> <address> <lt>",
-  resolve: "ton-watch resolve <consumer> <address> <lt>",
+  discard: "ton-watch discard <consumer> <address> <lt>",
   "delete-consumer": "ton-watch delete-consumer <consumer>",
 };
 
@@ -40,7 +40,7 @@ const CONSUMER_COMMANDS: ReadonlySet<Command["name"]> = new Set([
   "rewind",
   "dead-letters",
   "replay",
-  "resolve",
+  "discard",
   "delete-consumer",
 ]);
 
@@ -87,7 +87,7 @@ export function parseCommand(argv: readonly string[]): Command {
       return consumer === undefined ? { name } : { name, consumer: parseConsumer(consumer) };
     }
     case "replay":
-    case "resolve": {
+    case "discard": {
       const [consumer, address, lt] = positionals(usage, parseArgs(usage, rest), 3, 3);
       return {
         name,

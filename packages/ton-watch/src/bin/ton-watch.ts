@@ -13,7 +13,7 @@
  *   ton-watch rewind <consumer> <start|now|lt> [--address <address>]...
  *   ton-watch dead-letters [<consumer>]    dead letters (JSON)
  *   ton-watch replay <consumer> <address> <lt>   re-send a webhook dead letter, then delete it
- *   ton-watch resolve <consumer> <address> <lt>  delete a dead letter without re-sending it
+ *   ton-watch discard <consumer> <address> <lt>  delete a dead letter without re-sending it
  *   ton-watch delete-consumer <consumer>
  *
  * Configuration (env):
@@ -37,7 +37,7 @@
  *   TON_WATCH_WEBHOOK_URL   one target, named "default"
  *   TON_WATCH_WEBHOOKS      JSON array of named targets: {name, url, secret?, addresses?,
  *                           order?, from?, timeoutMs?, retryMinMs?, retryMaxMs?,
- *                           onError?, maxAttempts?}
+ *                           onError?, maxAttempts?}; "secret": null sends unsigned
  *   TON_WATCH_WEBHOOK_SECRET          HMAC-SHA256 signing secret (default for all targets)
  *   TON_WATCH_WEBHOOK_ORDER           address | global, default address
  *   TON_WATCH_WEBHOOK_FROM            start | now | <lt>, default start (first run only)

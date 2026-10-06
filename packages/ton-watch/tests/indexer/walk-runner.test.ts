@@ -97,6 +97,21 @@ const storedLts = async (store: MemoryStore) =>
   (await store.read(A, 0n, 1n << 62n, 10_000)).map((tx) => tx.lt);
 
 describe("WalkRunner page outcomes", () => {
+  test("a walk dropped while its page was being written is neither finished nor continued", async () => {
+    const s = await setup(40);
+    const walk = headWalk(s);
+    const write = s.store.write.bind(s.store);
+    s.store.write = async (address, txs) => {
+      s.scheduler.dropAddress(address);
+      return write(address, txs);
+    };
+    const cursor = walk.cursor;
+    await s.runner.runPage(walk);
+    expect(walk.cursor).toBe(cursor);
+    expect(s.finished).toEqual([]);
+    expect(s.splits).toEqual([]);
+  });
+
   test("advance: stores the page and moves the cursor to the oldest tx's prev link", async () => {
     const s = await setup(40);
     const walk = headWalk(s);

@@ -3,7 +3,7 @@ import { classifyError, errorMessage } from "../core/errors";
 import { txIdEquals } from "../core/types";
 import type { Metrics } from "../metrics/metrics";
 import type { Store } from "../stores/store";
-import { mapConcurrent } from "../util/async";
+import { mapConcurrent, PendingTasks } from "../util/async";
 import type { Logger } from "../util/logger";
 import type { IndexerEmitter } from "./events";
 import type { IndexerSettings } from "./options";
@@ -31,6 +31,7 @@ export interface MaintenanceDeps {
  */
 export class Maintenance {
   private lastFullScanAt = 0;
+  private readonly background = new PendingTasks();
 
   constructor(private readonly deps: MaintenanceDeps) {}
 
@@ -85,7 +86,7 @@ export class Maintenance {
     const tracked = addresses.get(address);
     if (!tracked) return;
     tracked.needsMaintenance = true;
-    void store
+    const advance = store
       .advanceFrontier(address)
       .then((frontier) => {
         if (frontier && frontier.lt !== tracked.state.frontier?.lt) {
@@ -94,6 +95,12 @@ export class Maintenance {
         }
       })
       .catch((error) => metrics.error(classifyError(error), "advanceFrontier"));
+    this.background.track(advance);
+  }
+
+  /** Resolves once the frontier updates started by `onWalkFinished` have finished. */
+  settled(): Promise<void> {
+    return this.background.settled();
   }
 
   private async scanAddress(tracked: TrackedAddress): Promise<void> {

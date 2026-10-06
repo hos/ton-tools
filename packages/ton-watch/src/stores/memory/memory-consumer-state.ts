@@ -35,6 +35,21 @@ export class MemoryConsumerState implements ConsumerStateStore {
   }
 
   async setCursor(consumer: string, address: string, lt: bigint): Promise<void> {
+    this.writeCursor(consumer, address, lt);
+  }
+
+  async compareAndSetCursor(
+    consumer: string,
+    address: string,
+    expected: bigint | null,
+    lt: bigint,
+  ): Promise<boolean> {
+    if ((this.cursors.get(key(consumer, address))?.lt ?? null) !== expected) return false;
+    this.writeCursor(consumer, address, lt);
+    return true;
+  }
+
+  private writeCursor(consumer: string, address: string, lt: bigint): void {
     this.cursors.set(key(consumer, address), {
       consumer,
       address,
@@ -98,6 +113,13 @@ export class MemoryConsumerState implements ConsumerStateStore {
 
   async putDeadLetter(letter: DeadLetter): Promise<void> {
     this.deadLetters.set(key(letter.consumer, letter.address, letter.lt), { ...letter });
+  }
+
+  async updateDeadLetter(letter: DeadLetter): Promise<boolean> {
+    const k = key(letter.consumer, letter.address, letter.lt);
+    if (!this.deadLetters.has(k)) return false;
+    this.deadLetters.set(k, { ...letter });
+    return true;
   }
 
   async listDeadLetters(filter: DeadLetterFilter = {}): Promise<DeadLetter[]> {

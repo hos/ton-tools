@@ -24,8 +24,9 @@ export type TransactionInput = Transaction | TxRecord;
 export interface ParseTransactionOptions {
   /**
    * The account the transaction belongs to. Optional: it is taken from a
-   * `TxRecord`, or else from the transaction's messages. Throws if it names a
-   * different account than the transaction's.
+   * `TxRecord`, or else from the transaction's messages. Throws if it is not an
+   * address or names a different account (hash, or workchain where the record
+   * or the messages tell it) than the transaction's.
    */
   address?: Address | string;
 }
@@ -93,14 +94,24 @@ function accountAddress(
   inMessage: ParsedMessage | null,
   outMessages: ParsedMessage[],
 ): Address | null {
-  if (option !== undefined) {
-    const address = typeof option === "string" ? Address.parse(option) : option;
-    if (BigInt(`0x${address.hash.toString("hex")}`) !== tx.address) {
-      throw new Error(`address ${address.toRawString()} is not the transaction's account`);
-    }
-    return address;
+  const known = "boc" in input ? Address.parse(input.address) : null;
+  const derived = known ?? addressFromMessages(inMessage, outMessages);
+  if (option === undefined) return derived;
+  const address = typeof option === "string" ? Address.parse(option) : option;
+  // The transaction stores only the account's hash; the workchain comes from the
+  // record or the messages, when they have one.
+  const sameHash = BigInt(`0x${address.hash.toString("hex")}`) === tx.address;
+  if (!sameHash || (derived !== null && derived.workChain !== address.workChain)) {
+    throw new Error(`address ${address.toRawString()} is not the transaction's account`);
   }
-  if ("boc" in input) return Address.parse(input.address);
+  return address;
+}
+
+/** The account as named by its messages: the inbound destination or an outbound source. */
+function addressFromMessages(
+  inMessage: ParsedMessage | null,
+  outMessages: ParsedMessage[],
+): Address | null {
   if (inMessage && inMessage.type !== "external-out") return inMessage.dest;
   for (const message of outMessages) {
     if (message.type !== "external-in") return message.src;

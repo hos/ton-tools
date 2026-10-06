@@ -301,3 +301,76 @@ describe("Indexer address shapes", () => {
     expect(Date.now() - t).toBeLessThan(20);
   });
 });
+
+describe("Indexer drain/syncOnce and stop()", () => {
+  test("drain() after stop() resolves, leaving the queued walks for the next run", async () => {
+    const s = await setup(200, { faults: { latencyMs: [2, 2] }, indexer: { concurrency: 1 } });
+    s.indexer.start();
+    await waitFor(() => s.pages() >= 1);
+    await s.indexer.stop();
+    expect(s.indexer.status()[0]!.walks).toBeGreaterThan(0);
+    const pages = s.pages();
+    await s.indexer.drain();
+    expect(s.pages()).toBe(pages);
+    await s.indexer.syncOnce();
+    expect(await s.complete(A)).toBe(true);
+  });
+
+  test("drain() returns when stop() is called while it waits", async () => {
+    const s = await setup(2_000, { faults: { latencyMs: [2, 2] }, indexer: { concurrency: 1 } });
+    await s.indexer.tick();
+    const drained = s.indexer.drain();
+    await waitFor(() => s.pages() >= 2);
+    await s.indexer.stop();
+    await drained;
+    expect(await s.complete(A)).toBe(false);
+  });
+
+  test("syncOnce() after stop() leaves the indexer stopped", async () => {
+    const s = await setup(20);
+    s.indexer.start();
+    await waitFor(() => s.complete(A));
+    await s.indexer.stop();
+    s.chain.grow([A], 20);
+    await s.indexer.syncOnce();
+    expect(await s.complete(A)).toBe(true);
+
+    s.chain.grow([A], 20);
+    const pages = s.pages();
+    await s.indexer.tick(); // schedules a head walk; a stopped indexer must not run it
+    await sleep(30);
+    expect(s.pages()).toBe(pages);
+    expect(s.indexer.status()[0]!.walks).toBe(1);
+  });
+
+  test("stop() during syncOnce() makes it return", async () => {
+    const s = await setup(3_000, { faults: { latencyMs: [2, 2] }, indexer: { concurrency: 1 } });
+    const synced = s.indexer.syncOnce();
+    await waitFor(() => s.pages() >= 2);
+    await s.indexer.stop();
+    await synced;
+    const pages = s.pages();
+    await sleep(30);
+    expect(s.pages()).toBe(pages);
+    expect(await s.complete(A)).toBe(false);
+  });
+
+  test("stop() waits for the frontier update a finished walk started", async () => {
+    const s = await setup(10);
+    let advancing = 0;
+    const advance = s.store.advanceFrontier.bind(s.store);
+    s.store.advanceFrontier = async (address) => {
+      advancing++;
+      try {
+        await sleep(30);
+        return await advance(address);
+      } finally {
+        advancing--;
+      }
+    };
+    s.indexer.start();
+    await waitFor(() => advancing > 0);
+    await s.indexer.stop();
+    expect(advancing).toBe(0);
+  });
+});

@@ -1,7 +1,7 @@
 /**
  * `onError`: a transaction whose handler keeps failing is retried forever
  * (default), skipped, or dead-lettered after `maxAttempts`, with attempt counts
- * that survive restarts; dead letters can be listed, replayed and resolved.
+ * that survive restarts; dead letters can be listed, replayed and discarded.
  */
 import { afterAll, describe, expect, test } from "bun:test";
 
@@ -13,6 +13,7 @@ import type { DeadLetter } from "../../src/stores/consumer-state";
 import type { PgDatabase } from "../../src/stores/pg/database";
 import { PgStore } from "../../src/stores/pg/pg-store";
 import type { Store } from "../../src/stores/store";
+import { sleep } from "../../src/util/async";
 import { FakeChain, fakeAddress } from "../fixtures/fake-chain";
 import { cleanUpStoreTargets, storeTargets } from "../fixtures/store-targets";
 
@@ -43,6 +44,14 @@ function recorder(poison: Set<bigint>) {
   };
   return { delivered, handler };
 }
+
+const until = async (condition: () => boolean, ms = 5_000) => {
+  const end = Date.now() + ms;
+  while (!condition()) {
+    if (Date.now() > end) throw new Error("timed out waiting");
+    await sleep(2);
+  }
+};
 
 async function rounds(consumer: Consumer, n: number) {
   for (let i = 0; i < n; i++) await consumer.runOnce();
@@ -259,6 +268,44 @@ for (const target of storeTargets) {
       expect(delivered.every((tx) => tx.lt < poison)).toBe(true);
     });
 
+    test("global order: removing a halted address releases the stream at once", async () => {
+      const store = await target.make();
+      const chain = await indexed(store);
+      const poison = chain.txs(B)[2]!.lt;
+      const { delivered, handler } = recorder(new Set([poison]));
+      // Halted for a minute: only dropping B's lane can let the others go on.
+      const consumer = new Consumer("gd", store, handler, {
+        order: "global",
+        pollMs: 5,
+        retryMinMs: 60_000,
+        retryMaxMs: 60_000,
+      });
+      const halted = () => consumer.status().addresses.some((lane) => lane.halted);
+      consumer.start();
+      try {
+        await consumer.ready();
+        await until(halted);
+        expect(delivered.every((tx) => tx.lt < poison)).toBe(true);
+
+        await store.removeAddress(B);
+        consumer.wake();
+        const watermark = [A, C]
+          .map((address) => chain.txs(address).at(-1)!.lt)
+          .reduce((min, lt) => (lt < min ? lt : min));
+        const expected = [A, C]
+          .flatMap((address) => chain.txs(address))
+          .filter((tx) => tx.lt <= watermark);
+        const key = (tx: { address: string; lt: bigint }) => `${tx.address}:${tx.lt}`;
+        await until(() => {
+          const keys = new Set(delivered.map(key));
+          return expected.every((tx) => keys.has(key(tx)));
+        }, 2_000);
+        expect(consumer.status().addresses.map((lane) => lane.address)).not.toContain(B);
+      } finally {
+        await consumer.stop();
+      }
+    });
+
     test("replay redelivers a dead letter and deletes it; a failed replay keeps it", async () => {
       const store = await target.make();
       const chain = await indexed(store);
@@ -289,7 +336,36 @@ for (const target of storeTargets) {
       await expect(consumer.replayDeadLetter(A, poison.lt)).rejects.toThrow("no dead letter");
     });
 
-    test("resolve deletes a dead letter without redelivering it", async () => {
+    test("a failed replay does not bring back a dead letter discarded meanwhile", async () => {
+      const store = await target.make();
+      const chain = await indexed(store);
+      const poison = chain.txs(A)[1]!.lt;
+      let replaying = false;
+      const consumer: Consumer = new Consumer(
+        "rd",
+        store,
+        async (tx) => {
+          if (tx.lt !== poison) return;
+          if (replaying) await consumer.discardDeadLetter(A, poison); // e.g. an operator
+          throw new Error("still broken");
+        },
+        {
+          ...NO_BACKOFF,
+          onError: "dead-letter",
+          maxAttempts: 1,
+          // PGlite has one connection: the discard cannot run beside the replay's transaction.
+          transactional: !target.singleSession,
+        },
+      );
+      await rounds(consumer, 2);
+      expect((await consumer.deadLetters()).length).toBe(1);
+
+      replaying = true;
+      await expect(consumer.replayDeadLetter(A, poison)).rejects.toThrow("still broken");
+      expect(await consumer.deadLetters()).toEqual([]);
+    });
+
+    test("discard deletes a dead letter without redelivering it", async () => {
       const store = await target.make();
       const chain = await indexed(store);
       const poison = chain.txs(B)[0]!.lt;
@@ -300,8 +376,8 @@ for (const target of storeTargets) {
         maxAttempts: 1,
       });
       await rounds(consumer, 2);
-      expect(await consumer.resolveDeadLetter(B, poison)).toBe(true);
-      expect(await consumer.resolveDeadLetter(B, poison)).toBe(false);
+      expect(await consumer.discardDeadLetter(B, poison)).toBe(true);
+      expect(await consumer.discardDeadLetter(B, poison)).toBe(false);
       expect(await consumer.deadLetters()).toEqual([]);
       expect(delivered.some((tx) => tx.lt === poison)).toBe(false);
     });
@@ -353,6 +429,15 @@ describe("failure policy options", () => {
     expect(make({ onError: "ignore" })).toThrow("onError");
     expect(make({ lock: "steal" })).toThrow("lock");
     expect(make({ lagIntervalMs: -1 })).toThrow("lagIntervalMs");
+    expect(make({ lagIntervalMs: Number.NaN })).toThrow("lagIntervalMs");
+    expect(make({ pollMs: 0 })).toThrow("pollMs");
+    expect(make({ pollMs: Number.POSITIVE_INFINITY })).toThrow("pollMs");
+    expect(make({ pollMs: "100" })).toThrow("pollMs");
+    expect(make({ retryMinMs: -1 })).toThrow("retryMinMs");
+    expect(make({ retryMinMs: Number.NaN })).toThrow("retryMinMs");
+    expect(make({ retryMaxMs: 500 })).toThrow("retryMaxMs"); // below the default retryMinMs
+    expect(make({ retryMinMs: 10, retryMaxMs: 5 })).toThrow("retryMaxMs");
+    expect(make({ retryMinMs: 0, retryMaxMs: 0, pollMs: 1 })).not.toThrow();
     expect(make({ isRetryable: true })).toThrow("isRetryable");
     expect(make({ onError: "skip", maxAttempts: 1, lock: "wait", lagIntervalMs: 0 })).not.toThrow();
   });

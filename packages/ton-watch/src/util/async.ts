@@ -37,3 +37,25 @@ export class SerialQueue {
     return result;
   }
 }
+
+/**
+ * Background promises started without being awaited, so a `stop()` can still wait
+ * for them. Each tracked promise must not reject (handle errors before tracking).
+ */
+export class PendingTasks {
+  private readonly pending = new Set<Promise<unknown>>();
+
+  get size(): number {
+    return this.pending.size;
+  }
+
+  track(promise: Promise<unknown>): void {
+    this.pending.add(promise);
+    void promise.finally(() => this.pending.delete(promise));
+  }
+
+  /** Resolves once every tracked promise has settled, including ones tracked meanwhile. */
+  async settled(): Promise<void> {
+    while (this.pending.size > 0) await Promise.allSettled([...this.pending]);
+  }
+}

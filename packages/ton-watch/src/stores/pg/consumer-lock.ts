@@ -8,7 +8,12 @@ import type { PgDatabase, PgQueryable, PgSession } from "./database";
  */
 const heldInProcess = new WeakMap<PgDatabase, Set<string>>();
 
-/** Both halves of the two-key advisory lock: one key space per schema, one key per consumer. */
+/**
+ * The two 32-bit keys of the advisory lock: `hashtext('ton_watch:<schema>')` and
+ * `hashtext(<consumer name>)` (in `pg_locks`: `locktype = 'advisory'`, `objsubid = 2`).
+ * Two names in one schema share a key with probability 2^-32 per pair; such a
+ * collision only makes them exclude each other, it never lets one name run twice.
+ */
 const LOCK_KEYS = `hashtext($1), hashtext($2)`;
 
 /**

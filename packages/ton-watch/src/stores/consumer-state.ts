@@ -77,6 +77,18 @@ export interface ConsumerStateStore {
   getCursor(consumer: string, address: string): Promise<bigint | null>;
   /** Moves the cursor (either direction) and clears its failure state. */
   setCursor(consumer: string, address: string, lt: bigint): Promise<void>;
+  /**
+   * Moves the cursor to `lt` and clears its failure state, but only if it still is
+   * at `expected` (`null`: only if there is no cursor yet). Resolves to false,
+   * changing nothing, if another writer moved it. Inside `Store.transaction` a
+   * concurrent move commits first or waits for this one, never both.
+   */
+  compareAndSetCursor(
+    consumer: string,
+    address: string,
+    expected: bigint | null,
+    lt: bigint,
+  ): Promise<boolean>;
   /** Cursors of active and inactive addresses, of one consumer or all of them. */
   listCursors(consumer?: string): Promise<CursorState[]>;
   /**
@@ -94,6 +106,11 @@ export interface ConsumerStateStore {
 
   /** Inserts a dead letter, or replaces the one for the same (consumer, address, lt). */
   putDeadLetter(letter: DeadLetter): Promise<void>;
+  /**
+   * Replaces the dead letter for the same (consumer, address, lt) only if it still
+   * exists; resolves to false, inserting nothing, if it does not.
+   */
+  updateDeadLetter(letter: DeadLetter): Promise<boolean>;
   /** Oldest first (by consumer, address, lt). */
   listDeadLetters(filter?: DeadLetterFilter): Promise<DeadLetter[]>;
   /** Resolves to false if there was no such dead letter. */

@@ -100,6 +100,11 @@ export class WalkScheduler {
     return pending || this.inFlight > 0;
   }
 
+  /** Whether `stop()` was called and not undone by `resume()`. */
+  get isStopped(): boolean {
+    return this.stopped;
+  }
+
   get pagesInFlight(): number {
     return this.inFlight;
   }

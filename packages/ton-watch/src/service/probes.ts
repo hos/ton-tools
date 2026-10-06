@@ -7,19 +7,29 @@ import type { Health, TonWatch } from "../ton-watch";
 import { consumerSummaries } from "./consumer-admin";
 import type { ServiceProbe } from "./http-server";
 
-/** `ton-watch run`: the indexer's health; status adds liteservers and webhook consumers. */
+/** `ton-watch run` health: the indexer's, made worse by any webhook consumer's problems. */
+export interface RunHealth extends Health {
+  /** Webhook consumers reported on. */
+  webhooks: number;
+}
+
+/**
+ * `ton-watch run`: the indexer's health combined with that of the webhook
+ * consumers; status adds liteservers and webhook consumers.
+ */
 export function indexerProbe(
   watch: TonWatch,
   serverStats: () => ServerStats[],
   webhooks: readonly Consumer[] = [],
 ): ServiceProbe {
+  const statuses = () => webhooks.map((consumer) => consumer.status());
   return {
     metrics: () => watch.metrics.toPrometheus(),
-    health: (): Health => watch.health(),
+    health: () => runHealth(watch.health(), deliveryHealth(statuses())),
     status: () => ({
       addresses: watch.status(),
       servers: serverStats(),
-      webhooks: webhooks.map((consumer) => consumer.status()),
+      webhooks: statuses(),
     }),
     consumers: () => consumerSummaries(watch.store),
   };
@@ -45,6 +55,20 @@ export function deliveryProbe(
     health: () => deliveryHealth(statuses()),
     status: () => ({ webhooks: statuses() }),
     consumers: () => consumerSummaries(store),
+  };
+}
+
+const SEVERITY = { ok: 0, degraded: 1, down: 2 } as const;
+
+/** The worse of the two statuses, with the reasons of both. */
+export function runHealth(indexer: Health, delivery: DeliveryHealth): RunHealth {
+  const status =
+    SEVERITY[delivery.status] > SEVERITY[indexer.status] ? delivery.status : indexer.status;
+  return {
+    ...indexer,
+    status,
+    webhooks: delivery.webhooks,
+    reasons: [...indexer.reasons, ...delivery.reasons],
   };
 }
 

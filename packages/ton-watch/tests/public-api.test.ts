@@ -8,10 +8,12 @@ import { describe, expect, test } from "bun:test";
 import pkg from "../package.json";
 import type * as Api from "../src/index";
 import type * as Toncenter from "../src/plugins/toncenter";
+import type * as Webhook from "../src/webhook";
 
 const RUNTIME_EXPORTS = [
   "Consumer",
   "ConsumerLockedError",
+  "CursorConflictError",
   "Indexer",
   "LiteSource",
   "MemoryStore",
@@ -92,6 +94,10 @@ export type PublicTypes = [
   Api.TxRecord,
   Api.TxSource,
   Toncenter.ToncenterHistoryOptions,
+  Webhook.HashJson,
+  Webhook.ParsedJson,
+  Webhook.VerifyOptions,
+  Webhook.WebhookPayload,
 ];
 
 describe("public API", () => {
@@ -118,6 +124,12 @@ describe("public API", () => {
     ]);
   });
 
+  test("ton-watch/webhook exports the receiver-side signature check", async () => {
+    const webhook = await import("ton-watch/webhook");
+    expect(Object.keys(webhook).sort()).toEqual(["SIGNATURE_HEADER", "verifySignature"]);
+    expect(webhook.SIGNATURE_HEADER).toBe("ton-watch-signature");
+  });
+
   test("the main entry does not pull in the toncenter plug-in", async () => {
     const api = await import("ton-watch");
     expect(Object.keys(api)).not.toContain("ToncenterHistory");
@@ -128,6 +140,7 @@ describe("public API", () => {
       ".": "./src/index.ts",
       "./toncenter": "./src/plugins/toncenter/index.ts",
       "./parse": "./src/parse/index.ts",
+      "./webhook": "./src/webhook/index.ts",
     });
     expect(pkg.main).toBe("src/index.ts");
     expect(pkg.module).toBe("src/index.ts");
@@ -138,6 +151,9 @@ describe("public API", () => {
     );
     expect(Bun.resolveSync("ton-watch/parse", dir)).toBe(
       Bun.resolveSync("./src/parse/index.ts", dir),
+    );
+    expect(Bun.resolveSync("ton-watch/webhook", dir)).toBe(
+      Bun.resolveSync("./src/webhook/index.ts", dir),
     );
     expect(await Bun.file(Bun.resolveSync(`./${pkg.bin["ton-watch"]}`, dir)).exists()).toBe(true);
   });

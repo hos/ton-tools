@@ -1,5 +1,6 @@
 import type { ServerDefinition } from "@ton/ls";
 
+import { toRawAddress } from "../core/address";
 import type { DetectMode } from "../indexer/options";
 import type { AddAddressOptions } from "../ton-watch";
 import { isLogLevel, type LogLevel } from "../util/logger";
@@ -13,7 +14,7 @@ export interface ServiceConfig {
   schema?: string;
   network: ServerDefinition;
   archiveNetwork?: ServerDefinition;
-  /** Addresses to ensure on start, each with where its history begins. */
+  /** Addresses (raw) to ensure on start, each with where its history begins. */
   addresses: { address: string; from: AddAddressOptions["from"] }[];
   /** Health/metrics HTTP port; 0 disables the server. */
   port: number;
@@ -87,7 +88,10 @@ export function parseFrom(value: string | undefined): AddAddressOptions["from"] 
   throw new Error(`invalid --from value: ${value} (now | genesis | <lt>)`);
 }
 
-/** `addr1,addr2@genesis,addr3@<lt>`: comma-separated, each optionally `@<from>`. */
+/**
+ * `addr1,addr2@genesis,addr3@<lt>`: comma-separated, each optionally `@<from>`.
+ * Addresses are validated here and returned raw.
+ */
 function parseAddressList(list: string): ServiceConfig["addresses"] {
   return list
     .split(",")
@@ -95,6 +99,14 @@ function parseAddressList(list: string): ServiceConfig["addresses"] {
     .filter(Boolean)
     .map((entry) => {
       const [address = "", from] = entry.split("@");
-      return { address, from: parseFrom(from) };
+      return { address: parseListedAddress(address), from: parseFrom(from) };
     });
+}
+
+function parseListedAddress(address: string): string {
+  try {
+    return toRawAddress(address);
+  } catch {
+    throw new Error(`invalid TON_WATCH_ADDRESSES: ${address || "(empty)"} is not an address`);
+  }
 }

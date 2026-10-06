@@ -75,6 +75,28 @@ describe("webhooksFromEnv", () => {
     ]);
   });
 
+  test('an entry\'s "secret": null sends that target unsigned despite a global secret', () => {
+    const targets = webhooksFromEnv({
+      TON_WATCH_WEBHOOK_SECRET: "shared",
+      TON_WATCH_WEBHOOKS: JSON.stringify([
+        { name: "signed", url: "http://h/" },
+        { name: "unsigned", url: "http://h/", secret: null },
+      ]),
+    });
+    expect(targets.map((t) => [t.name, t.secret])).toEqual([
+      ["signed", "shared"],
+      ["unsigned", null],
+    ]);
+  });
+
+  test("retry delays: an entry may override either bound if min stays at most max", () => {
+    const [target] = webhooksFromEnv({
+      TON_WATCH_WEBHOOK_RETRY_MAX_MS: "500",
+      TON_WATCH_WEBHOOKS: JSON.stringify([{ name: "a", url: "http://h/", retryMinMs: 500 }]),
+    });
+    expect(target).toMatchObject({ retryMinMs: 500, retryMaxMs: 500 });
+  });
+
   test("a TON_WATCH_WEBHOOKS entry overrides the failure policy", () => {
     const targets = webhooksFromEnv({
       TON_WATCH_WEBHOOK_ON_ERROR: "skip",
@@ -101,6 +123,11 @@ describe("webhooksFromEnv", () => {
     ["TON_WATCH_WEBHOOK_ORDER", "random", "invalid TON_WATCH_WEBHOOK_ORDER: random"],
     ["TON_WATCH_WEBHOOK_FROM", "genesis", "invalid TON_WATCH_WEBHOOK_FROM: genesis"],
     ["TON_WATCH_WEBHOOK_TIMEOUT_MS", "0", "invalid TON_WATCH_WEBHOOK_TIMEOUT_MS: 0"],
+    [
+      "TON_WATCH_WEBHOOK_RETRY_MIN_MS",
+      "60001",
+      "invalid TON_WATCH_WEBHOOK_RETRY_MIN_MS: 60001 is above",
+    ],
     ["TON_WATCH_WEBHOOKS", "{", "invalid TON_WATCH_WEBHOOKS: not JSON"],
     ["TON_WATCH_WEBHOOKS", "{}", "invalid TON_WATCH_WEBHOOKS: expected an array"],
   ])("%s=%p is rejected", (name, value, message) => {
@@ -122,6 +149,16 @@ describe("webhooksFromEnv", () => {
     [[{ name: "a", url: "http://h/", timeoutMs: "5" }], "TON_WATCH_WEBHOOKS[0].timeoutMs"],
     [[{ name: "a", url: "http://h/", retryMinMs: 0 }], "TON_WATCH_WEBHOOKS[0].retryMinMs"],
     [[{ name: "a", url: "http://h/", onError: "drop" }], "invalid TON_WATCH_WEBHOOKS[0].onError"],
+    [[{ name: "a", url: "http://h/", secret: "" }], "invalid TON_WATCH_WEBHOOKS[0].secret"],
+    [[{ name: "a", url: "http://h/", secret: 5 }], "invalid TON_WATCH_WEBHOOKS[0].secret"],
+    [
+      [{ name: "a", url: "http://h/", retryMinMs: 5_000, retryMaxMs: 1_000 }],
+      "invalid TON_WATCH_WEBHOOKS[0].retryMinMs: 5000 is above retryMaxMs (1000)",
+    ],
+    [
+      [{ name: "a", url: "http://h/", retryMaxMs: 10 }],
+      "invalid TON_WATCH_WEBHOOKS[0].retryMinMs: 1000 is above retryMaxMs (10)",
+    ],
     [[{ name: "a", url: "http://h/", maxAttempts: 0 }], "TON_WATCH_WEBHOOKS[0].maxAttempts"],
     [[{ name: "a", url: "http://h/", maxAttempts: "3" }], "TON_WATCH_WEBHOOKS[0].maxAttempts"],
     [

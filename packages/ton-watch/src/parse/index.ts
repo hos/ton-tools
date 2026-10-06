@@ -10,6 +10,7 @@ export {
   type IncomingPayment,
   incomingJettonTransfer,
   incomingPayment,
+  type JettonWallets,
 } from "./deposits";
 export { parseMessage } from "./message";
 export { Op } from "./opcodes";

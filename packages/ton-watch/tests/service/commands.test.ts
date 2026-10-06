@@ -46,7 +46,7 @@ describe("parseCommand", () => {
       address: A,
       lt: 7n,
     });
-    expect(parseCommand(["resolve", "c", A, "7"])).toMatchObject({ name: "resolve", lt: 7n });
+    expect(parseCommand(["discard", "c", A, "7"])).toMatchObject({ name: "discard", lt: 7n });
     expect(parseCommand(["delete-consumer", "c"])).toEqual({
       name: "delete-consumer",
       consumer: "c",
@@ -68,7 +68,7 @@ describe("parseCommand", () => {
         ["rewind", "c", "now"],
         ["dead-letters"],
         ["replay", "c", A, "1"],
-        ["resolve", "c", A, "1"],
+        ["discard", "c", A, "1"],
         ["delete-consumer", "c"],
       ]).every(Boolean),
     ).toBe(true);
@@ -89,7 +89,7 @@ describe("parseCommand", () => {
     [["dead-letters", "a", "b"], "usage: ton-watch dead-letters [<consumer>]"],
     [["replay", "c", A], "usage: ton-watch replay <consumer> <address> <lt>"],
     [["replay", "c", A, "1.5"], "invalid lt: 1.5"],
-    [["resolve", "c", "nope", "1"], "invalid address: nope"],
+    [["discard", "c", "nope", "1"], "invalid address: nope"],
     [["delete-consumer"], "usage: ton-watch delete-consumer <consumer>"],
     [["delete-consumer", ""], "invalid consumer name: empty"],
   ])("%j is rejected", (argv, message) => {

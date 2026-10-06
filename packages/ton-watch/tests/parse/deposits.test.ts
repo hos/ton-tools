@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { beginCell } from "@ton/core";
+import { beginCell, Dictionary } from "@ton/core";
 
 import { incomingJettonTransfer, incomingPayment } from "../../src/parse/deposits";
 import {
@@ -30,6 +30,25 @@ describe("incomingPayment", () => {
     const payment = incomingPayment(record);
     expect(payment).toMatchObject({ amount: 2_500_000_000n, comment: "user-17", success: true });
     expect(payment?.sender.equals(OTHER)).toBe(true);
+  });
+
+  test("extra currencies are reported apart from the TON amount", () => {
+    const extra = Dictionary.empty(Dictionary.Keys.Uint(32), Dictionary.Values.BigVarUint(5));
+    extra.set(7, 123n);
+    const { tx } = buildTx({
+      inMessage: internalMessage({ value: 5n, extraCurrencies: extra }),
+    });
+    const payment = incomingPayment(tx);
+    expect(payment?.amount).toBe(5n);
+    expect(payment?.extraCurrencies).toEqual(new Map([[7, 123n]]));
+    expect(incomingPayment(buildTx({ inMessage: internalMessage() }).tx)?.extraCurrencies).toEqual(
+      new Map(),
+    );
+  });
+
+  test("throws on a record whose BOC is not a transaction", () => {
+    const { record } = buildTx({ inMessage: internalMessage() });
+    expect(() => incomingPayment({ ...record, boc: beginCell().endCell().toBoc() })).toThrow();
   });
 
   test("encrypted memo is exposed through body", () => {
@@ -96,9 +115,9 @@ describe("incomingJettonTransfer", () => {
     .storeRef(textComment("invoice 9"))
     .endCell();
 
-  test("decodes the notification", () => {
+  test("decodes the notification from the trusted jetton wallet", () => {
     const { tx } = buildTx({ inMessage: internalMessage({ value: 1n, body: notification }) });
-    const transfer = incomingJettonTransfer(tx);
+    const transfer = incomingJettonTransfer(tx, { jettonWallet: OTHER });
     expect(transfer).toMatchObject({
       amount: 1_000_000n,
       queryId: 5n,
@@ -109,15 +128,63 @@ describe("incomingJettonTransfer", () => {
     expect(transfer?.sender?.equals(THIRD)).toBe(true);
   });
 
-  test("jettonWallet option rejects notifications from anyone else", () => {
+  test("jettonWallet rejects notifications from anyone else, in every accepted form", () => {
     const { tx } = buildTx({ inMessage: internalMessage({ body: notification }) });
-    expect(incomingJettonTransfer(tx, { jettonWallet: OTHER })).not.toBeNull();
+    for (const jettonWallet of [OTHER, OTHER.toString(), OTHER.toRawString()]) {
+      expect(incomingJettonTransfer(tx, { jettonWallet })).not.toBeNull();
+    }
+    expect(incomingJettonTransfer(tx, { jettonWallet: [THIRD, OTHER.toString()] })).not.toBeNull();
+    expect(incomingJettonTransfer(tx, { jettonWallet: new Set([OTHER]) })).not.toBeNull();
     expect(incomingJettonTransfer(tx, { jettonWallet: THIRD.toString() })).toBeNull();
+    expect(incomingJettonTransfer(tx, { jettonWallet: [THIRD] })).toBeNull();
+    expect(incomingJettonTransfer(tx, { jettonWallet: [] })).toBeNull();
+  });
+
+  test("a spoofed notification is not accepted unless trustAnySender opts in", () => {
+    const { tx } = buildTx({ inMessage: internalMessage({ body: notification }) });
+    // Calls from JavaScript, or with the types bypassed, must not fall back to trusting anyone.
+    expect(() => incomingJettonTransfer(tx, undefined as never)).toThrow(
+      "jettonWallet is required",
+    );
+    expect(() => incomingJettonTransfer(tx, {} as never)).toThrow("jettonWallet is required");
+    expect(() =>
+      incomingJettonTransfer(tx, { jettonWallet: OTHER, trustAnySender: true } as never),
+    ).toThrow("not both");
+    expect(incomingJettonTransfer(tx, { trustAnySender: true })?.jettonWallet.equals(OTHER)).toBe(
+      true,
+    );
+  });
+
+  test("throws on a jettonWallet that is not an address", () => {
+    const { tx } = buildTx({ inMessage: internalMessage({ body: notification }) });
+    expect(() => incomingJettonTransfer(tx, { jettonWallet: "not-an-address" })).toThrow();
+  });
+
+  test("a malformed forward payload still yields the credited transfer", () => {
+    const head = () =>
+      beginCell().storeUint(0x7362d09c, 32).storeUint(5, 64).storeCoins(7n).storeAddress(THIRD);
+    // Either bit set without the ref; and a ref without the Either bit.
+    for (const body of [
+      head().storeBit(1).endCell(),
+      head().storeRef(textComment("x")).endCell(),
+    ]) {
+      const { tx } = buildTx({ inMessage: internalMessage({ body }) });
+      const transfer = incomingJettonTransfer(tx, { jettonWallet: OTHER });
+      expect(transfer).toMatchObject({
+        amount: 7n,
+        comment: null,
+        forwardPayload: { kind: "malformed" },
+      });
+      expect(transfer?.sender?.equals(THIRD)).toBe(true);
+    }
   });
 
   test("other bodies and bounced messages yield null", () => {
-    expect(incomingJettonTransfer(buildTx({ inMessage: internalMessage() }).tx)).toBeNull();
+    const options = { jettonWallet: OTHER };
+    expect(
+      incomingJettonTransfer(buildTx({ inMessage: internalMessage() }).tx, options),
+    ).toBeNull();
     const bounced = buildTx({ inMessage: internalMessage({ bounced: true, body: notification }) });
-    expect(incomingJettonTransfer(bounced.tx)).toBeNull();
+    expect(incomingJettonTransfer(bounced.tx, options)).toBeNull();
   });
 });

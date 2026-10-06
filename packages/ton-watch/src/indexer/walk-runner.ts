@@ -56,6 +56,8 @@ export class WalkRunner {
     const written = inScope.length > 0 ? await store.write(walk.address, inScope) : 0;
     metrics.txWritten(written);
     metrics.inc("ton_watch_pages_total", { kind: walk.kind });
+    // Dropped during the write (its address was removed): neither finish nor continue it.
+    if (!scheduler.has(walk)) return;
 
     const oldest = page.at(-1)!;
     const reachedFloor = oldest.prevLt <= walk.floorLt || inScope.length < page.length;

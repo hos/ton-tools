@@ -334,7 +334,7 @@ for (const target of storeTargets) {
       expect(() => watch.process("local", () => {})).toThrow("already registered");
     });
 
-    test("dead letters through TonWatch: list, replay, resolve", async () => {
+    test("dead letters through TonWatch: list, replay, discard", async () => {
       const store = await target.make();
       const chain = await indexed(store);
       const [first, second] = [chain.txs(A)[2]!.lt, chain.txs(B)[3]!.lt];
@@ -353,7 +353,7 @@ for (const target of storeTargets) {
 
       broken = false;
       await watch.replayDeadLetter("dl", A, first);
-      expect(await watch.resolveDeadLetter("dl", B, second)).toBe(true);
+      expect(await watch.discardDeadLetter("dl", B, second)).toBe(true);
       expect(await watch.deadLetters()).toEqual([]);
       expect(() => watch.replayDeadLetter("other", A, first)).toThrow("not registered");
     });

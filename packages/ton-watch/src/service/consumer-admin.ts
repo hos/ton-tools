@@ -90,12 +90,12 @@ export async function runConsumerCommand(
       await withConsumerLock(store, command.consumer, () => store.deleteConsumer(command.consumer));
       logger.info(`deleted consumer ${command.consumer}`);
       return;
-    case "resolve": {
+    case "discard": {
       const { consumer, address, lt } = command;
       if (!(await store.deleteDeadLetter(consumer, address, lt))) {
         throw new Error(`consumer ${consumer} has no dead letter at ${address} lt ${lt}`);
       }
-      logger.info(`resolved dead letter ${address} lt ${lt} of ${consumer}`);
+      logger.info(`discarded dead letter ${address} lt ${lt} of ${consumer}`);
       return;
     }
     case "replay": {

@@ -2,7 +2,7 @@ import type { Server } from "node:http";
 import { Pool } from "pg";
 
 import { Consumer } from "../consumer/consumer";
-import { toRawAddress } from "../core/address";
+import { errorMessage } from "../core/errors";
 import { Metrics } from "../metrics/metrics";
 import type { HistoryOptions } from "../source/history";
 import { LiteSource } from "../source/liteserver/lite-source";
@@ -12,7 +12,7 @@ import { consoleLogger, type Logger } from "../util/logger";
 import { isConsumerCommand, parseCommand } from "./commands";
 import { configFromEnv, type ServiceConfig, type ToncenterConfig } from "./config";
 import { replayableSpec, runConsumerCommand } from "./consumer-admin";
-import { startHttpServer, toJson } from "./http-server";
+import { type ServiceProbe, startHttpServer, toJson } from "./http-server";
 import { deliveryProbe, indexerProbe } from "./probes";
 import {
   type WebhookConsumerSpec,
@@ -89,12 +89,13 @@ export async function main(argv: string[], env: Record<string, string | undefine
 
 /**
  * Indexes until SIGINT/SIGTERM, delivers to the configured webhooks, and serves
- * health and metrics over HTTP.
+ * health and metrics over HTTP. The HTTP port is bound before any work starts,
+ * so a port in use fails the command instead of crashing a running service.
  */
 async function run(watch: TonWatch, source: LiteSource, config: ServiceConfig, logger: Logger) {
   const known = new Set((await watch.addresses()).map((state) => state.address));
   for (const { address, from } of config.addresses) {
-    if (known.has(toRawAddress(address))) continue;
+    if (known.has(address)) continue;
     await watch.addAddress(address, { from });
     logger.info(`added ${address} from ${from}`);
   }
@@ -102,11 +103,16 @@ async function run(watch: TonWatch, source: LiteSource, config: ServiceConfig, l
   const webhooks = startingWebhooks(config, logger).map((spec) =>
     watch.process(spec.name, spec.handler, spec.options),
   );
-  await watch.start();
-  logger.info(`indexing ${(await watch.addresses()).length} address(es)`);
-
   const probe = indexerProbe(watch, () => source.pool.stats(), webhooks);
-  const server = config.port > 0 ? startHttpServer(probe, config.port, logger) : null;
+  const server = await listenOrStop(probe, config, logger, () => watch.stop());
+  try {
+    await watch.start();
+  } catch (error) {
+    await closeServer(server);
+    await watch.stop();
+    throw error;
+  }
+  logger.info(`indexing ${(await watch.addresses()).length} address(es)`);
   stopOnSignal(() => watch.stop(), server, logger);
 }
 
@@ -122,23 +128,43 @@ async function deliver(store: PgStore, config: ServiceConfig, logger: Logger) {
   const webhooks = startingWebhooks(config, logger).map(
     (spec) => new Consumer(spec.name, store, spec.handler, spec.options, { logger, metrics }),
   );
+  const stop = async () => {
+    await Promise.all(webhooks.map((consumer) => consumer.stop()));
+    await store.close();
+  };
+  const probe = deliveryProbe(metrics, webhooks, store);
+  const server = await listenOrStop(probe, config, logger, stop);
   try {
     await Promise.all(webhooks.map((consumer) => consumer.start().ready()));
   } catch (error) {
-    await Promise.all(webhooks.map((consumer) => consumer.stop()));
-    await store.close();
+    await closeServer(server);
+    await stop();
     throw error;
   }
-  const probe = deliveryProbe(metrics, webhooks, store);
-  const server = config.port > 0 ? startHttpServer(probe, config.port, logger) : null;
-  stopOnSignal(
-    async () => {
-      await Promise.all(webhooks.map((consumer) => consumer.stop()));
-      await store.close();
-    },
-    server,
-    logger,
-  );
+  stopOnSignal(stop, server, logger);
+}
+
+/**
+ * Starts the HTTP server unless `config.port` is 0. If it cannot listen, runs
+ * `stop` (releasing what was opened so far) and rethrows.
+ */
+async function listenOrStop(
+  probe: ServiceProbe,
+  config: ServiceConfig,
+  logger: Logger,
+  stop: () => Promise<void>,
+): Promise<Server | null> {
+  if (config.port === 0) return null;
+  try {
+    return await startHttpServer(probe, config.port, logger);
+  } catch (error) {
+    await stop();
+    throw error;
+  }
+}
+
+function closeServer(server: Server | null): Promise<void> {
+  return new Promise((resolve) => (server ? server.close(() => resolve()) : resolve()));
 }
 
 function webhookSpecs(config: ServiceConfig): WebhookConsumerSpec[] {
@@ -159,24 +185,41 @@ function startingWebhooks(config: ServiceConfig, logger: Logger): WebhookConsume
   return webhookSpecs(config);
 }
 
-/** Stops gracefully on SIGINT/SIGTERM, then exits; a second signal is ignored. */
+/**
+ * Stops gracefully on SIGINT/SIGTERM, then exits 0. Exits 1 if the stop fails or
+ * takes longer than `SHUTDOWN_TIMEOUT_MS`; a second signal exits 1 at once.
+ */
 function stopOnSignal(stop: () => Promise<void>, server: Server | null, logger: Logger): void {
+  const signals = ["SIGINT", "SIGTERM"] as const;
   let stopping = false;
-  const shutdown = async (signal: string) => {
-    if (stopping) return;
+  const onSignal = (signal: NodeJS.Signals) => {
+    if (stopping) {
+      logger.warn(`${signal} while stopping: exiting now`);
+      process.exit(1);
+      return;
+    }
     stopping = true;
+    void shutdown(signal);
+  };
+  const shutdown = async (signal: NodeJS.Signals) => {
     logger.info(`${signal}: stopping…`);
     const forceExit = setTimeout(() => {
       logger.error("graceful stop timed out, exiting");
       process.exit(1);
     }, SHUTDOWN_TIMEOUT_MS);
-    server?.close();
-    await stop();
+    let code = 0;
+    try {
+      server?.close();
+      await stop();
+    } catch (error) {
+      logger.error("stop failed:", errorMessage(error));
+      code = 1;
+    }
     clearTimeout(forceExit);
-    process.exit(0);
+    for (const name of signals) process.off(name, onSignal);
+    process.exit(code);
   };
-  process.on("SIGINT", () => void shutdown("SIGINT"));
-  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  for (const name of signals) process.on(name, onSignal);
 }
 
 async function toncenterHistory(config: ToncenterConfig): Promise<Required<HistoryOptions>> {

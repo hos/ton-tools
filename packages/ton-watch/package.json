@@ -31,6 +31,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./toncenter": "./src/plugins/toncenter/index.ts",
-    "./parse": "./src/parse/index.ts"
+    "./parse": "./src/parse/index.ts",
+    "./webhook": "./src/webhook/index.ts"
   }
 }

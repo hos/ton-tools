@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 /** Anything that can run a parameterized query: `pg.Pool`, `pg.PoolClient`, PGlite. */
 export interface PgQueryable {
@@ -26,7 +26,17 @@ export interface PgDatabase extends PgQueryable {
   session?(): Promise<PgSession>;
 }
 
-/** Adapts a `pg.Pool` to `PgDatabase`. */
+/** `pg.Pool`'s default `max`. */
+const DEFAULT_POOL_MAX = 10;
+
+/** Dedicated sessions open per pool, across every `PgDatabase` adapting it. */
+const openSessions = new WeakMap<Pool, number>();
+
+/**
+ * Adapts a `pg.Pool` to `PgDatabase`. A `session()` keeps one pool client for
+ * itself, so it is refused when it would leave the pool no client for queries:
+ * with `pg`'s default `connectionTimeoutMillis` of 0 those would wait forever.
+ */
 export function poolDatabase(pool: Pool): PgDatabase {
   return {
     query: (text, params) => pool.query(text, params),
@@ -45,7 +55,30 @@ export function poolDatabase(pool: Pool): PgDatabase {
       }
     },
     async session() {
-      const client = await pool.connect();
+      // Pool look-alikes (pg-compatible drivers, test doubles) may have no `options`.
+      const max = pool.options?.max ?? DEFAULT_POOL_MAX;
+      const open = openSessions.get(pool) ?? 0;
+      if (open + 1 >= max) {
+        throw new Error(
+          `pg Pool too small: ${open + 1} dedicated connection(s) (one per running consumer) ` +
+            `would leave none of its ${max} for queries. Raise the pool's max to at least ` +
+            `the number of consumers plus the connections your handlers and the indexer use at once.`,
+        );
+      }
+      openSessions.set(pool, open + 1);
+      let returned = false;
+      const forget = () => {
+        if (returned) return;
+        returned = true;
+        openSessions.set(pool, (openSessions.get(pool) ?? 1) - 1);
+      };
+      let client: PoolClient;
+      try {
+        client = await pool.connect();
+      } catch (error) {
+        forget();
+        throw error;
+      }
       const listeners: (() => void)[] = [];
       let closed = false;
       const close = () => {
@@ -59,6 +92,8 @@ export function poolDatabase(pool: Pool): PgDatabase {
       return {
         query: (text, params) => client.query(text, params),
         release(destroy) {
+          if (returned) return;
+          forget();
           client.off("error", close);
           client.off("end", close);
           client.release(destroy || closed);

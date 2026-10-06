@@ -1,14 +1,16 @@
 /**
  * Example: record incoming TON payments of a few addresses into your own table,
- * exactly once, in chain order. `incomingPayment` skips everything that is not
- * TON that arrived and stayed: outgoing and self transfers, bounces of our own
- * messages, and deposits the account bounced back.
+ * exactly once, in chain order. `incomingPayment` skips everything that did not
+ * credit TON: outgoing and self transfers, bounces of our own messages, and
+ * deposits the account bounced back. Of what is left, only plain transfers (no
+ * body, or a text comment) are payments: an `excesses` refund or the TON attached
+ * to a jetton notification is credited the same way but is not one.
  *
  *   DATABASE_URL=postgres://… bun run examples/incoming-payments.ts EQ…address
  */
 import { Pool } from "pg";
 import { LiteSource, PgStore, TonWatch } from "../src";
-import { incomingPayment } from "../src/parse";
+import { type IncomingPayment, incomingPayment } from "../src/parse";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const watch = new TonWatch({
@@ -27,7 +29,7 @@ for (const address of process.argv.slice(2)) {
 
 watch.process("payments", async (tx, ctx) => {
   const payment = incomingPayment(tx);
-  if (!payment) return;
+  if (!payment || !isPlainTransfer(payment)) return;
   // ctx.db is the transaction the consumer cursor is committed in: this insert and
   // the cursor commit together, so a crash never records a payment twice or loses one.
   const db = ctx.db as Pool;
@@ -40,6 +42,11 @@ watch.process("payments", async (tx, ctx) => {
     tx.utime,
   ]);
 });
+
+/** No body, or a text comment: what a wallet sends when a user pays. */
+function isPlainTransfer(payment: IncomingPayment): boolean {
+  return payment.body.kind === "empty" || payment.body.kind === "text-comment";
+}
 
 await watch.start();
 process.on("SIGINT", () => void watch.stop().then(() => process.exit(0)));

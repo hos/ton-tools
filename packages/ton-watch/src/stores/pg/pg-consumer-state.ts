@@ -91,6 +91,34 @@ export class PgConsumerState {
     );
   }
 
+  async compareAndSetCursor(
+    consumer: string,
+    address: string,
+    expected: bigint | null,
+    lt: bigint,
+  ): Promise<boolean> {
+    // Under read committed, an update waiting on a concurrent one re-checks
+    // `c.lt = $3` against the committed row, so only one of them matches.
+    const rows =
+      expected === null
+        ? await this.query(
+            `insert into $S.cursors (consumer, address_id, lt)
+             select $1, id, $3 from $S.addresses where address = $2
+             on conflict (consumer, address_id) do nothing
+             returning lt`,
+            [consumer, address, lt.toString()],
+          )
+        : await this.query(
+            `update $S.cursors c set lt = $4, updated_at = now(), attempts = 0, last_error = null,
+               first_failure_at = null, last_failure_at = null
+             from $S.addresses a
+             where a.id = c.address_id and c.consumer = $1 and a.address = $2 and c.lt = $3
+             returning c.lt`,
+            [consumer, address, expected.toString(), lt.toString()],
+          );
+    return rows.length > 0;
+  }
+
   async listCursors(consumer?: string): Promise<CursorState[]> {
     const rows = await this.query<CursorRow>(
       `select ${CURSOR_COLUMNS}
@@ -173,6 +201,27 @@ export class PgConsumerState {
         letter.lastFailureAt,
       ],
     );
+  }
+
+  async updateDeadLetter(letter: DeadLetter): Promise<boolean> {
+    const rows = await this.query(
+      `update $S.dead_letters d set hash = decode($4, 'hex'), error = $5, attempts = $6,
+         first_failure_at = $7, last_failure_at = $8
+       from $S.addresses a
+       where a.id = d.address_id and d.consumer = $1 and a.address = $2 and d.lt = $3
+       returning d.lt`,
+      [
+        letter.consumer,
+        letter.address,
+        letter.lt.toString(),
+        letter.hash.toString("hex"),
+        letter.error,
+        letter.attempts,
+        letter.firstFailureAt,
+        letter.lastFailureAt,
+      ],
+    );
+    return rows.length > 0;
   }
 
   async listDeadLetters(filter: DeadLetterFilter = {}): Promise<DeadLetter[]> {

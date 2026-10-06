@@ -9,7 +9,9 @@ import { fakeAddress } from "../fixtures/fake-chain";
 const A = fakeAddress(1);
 
 /** A fake `pg.Pool` that records every call; `fail` makes a given statement reject. */
-function fakePool(options: { fail?: Record<string, Error>; connectError?: Error } = {}) {
+function fakePool(
+  options: { fail?: Record<string, Error>; connectError?: Error; max?: number } = {},
+) {
   const calls: string[] = [];
   const client = {
     async query(text: string, params?: unknown[]) {
@@ -21,8 +23,11 @@ function fakePool(options: { fail?: Record<string, Error>; connectError?: Error 
     release() {
       calls.push("release");
     },
+    on() {},
+    off() {},
   };
   const pool = {
+    options: { max: options.max },
     async query(text: string, params?: unknown[]) {
       calls.push(`pool:${text}${params ? ` ${JSON.stringify(params)}` : ""}`);
       return { rows: [{ text, params }] };
@@ -125,6 +130,39 @@ describe("poolDatabase", () => {
     expect(calls.filter((c) => c === "connect").length).toBe(3);
     expect(calls.filter((c) => c === "client:commit").length).toBe(3);
     expect(calls.filter((c) => c === "release").length).toBe(3);
+  });
+});
+
+describe("poolDatabase sessions", () => {
+  test("refuses a session that would leave the pool no client for queries", async () => {
+    const { pool, calls } = fakePool({ max: 3 });
+    const db = poolDatabase(pool);
+    const first = await db.session!();
+    const second = await poolDatabase(pool).session!(); // counted per pool, not per adapter
+    await expect(db.session!()).rejects.toThrow(/pg Pool too small: 3 dedicated .* of its 3/);
+    expect(calls.filter((c) => c === "connect").length).toBe(2);
+
+    first.release();
+    first.release(); // a second release must not free another slot
+    const third = await db.session!();
+    await expect(db.session!()).rejects.toThrow("pg Pool too small");
+    second.release();
+    third.release();
+  });
+
+  test("the pg default max of 10 applies when the pool has none set", async () => {
+    const { pool } = fakePool();
+    const db = poolDatabase(pool);
+    const sessions = await Promise.all(Array.from({ length: 9 }, () => db.session!()));
+    await expect(db.session!()).rejects.toThrow("of its 10");
+    for (const session of sessions) session.release();
+  });
+
+  test("a failed connect gives its slot back", async () => {
+    const { pool } = fakePool({ max: 2, connectError: new Error("ECONNREFUSED") });
+    const db = poolDatabase(pool);
+    await expect(db.session!()).rejects.toThrow("ECONNREFUSED");
+    await expect(db.session!()).rejects.toThrow("ECONNREFUSED"); // not "too small"
   });
 });
 

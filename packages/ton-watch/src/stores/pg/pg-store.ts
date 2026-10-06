@@ -307,6 +307,15 @@ export class PgStore implements Store {
     return this.consumerState.setCursor(consumer, address, lt);
   }
 
+  compareAndSetCursor(
+    consumer: string,
+    address: string,
+    expected: bigint | null,
+    lt: bigint,
+  ): Promise<boolean> {
+    return this.consumerState.compareAndSetCursor(consumer, address, expected, lt);
+  }
+
   listCursors(consumer?: string): Promise<CursorState[]> {
     return this.consumerState.listCursors(consumer);
   }
@@ -329,6 +338,10 @@ export class PgStore implements Store {
 
   putDeadLetter(letter: DeadLetter): Promise<void> {
     return this.consumerState.putDeadLetter(letter);
+  }
+
+  updateDeadLetter(letter: DeadLetter): Promise<boolean> {
+    return this.consumerState.updateDeadLetter(letter);
   }
 
   listDeadLetters(filter?: DeadLetterFilter): Promise<DeadLetter[]> {

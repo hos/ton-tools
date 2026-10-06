@@ -3,12 +3,13 @@
  * connection by a `FakeSource` (both mocked at the module level), plus the real
  * binary as a subprocess for startup failures that happen before any connection.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 
 import { errorMessage } from "../../src/core/errors";
 import { main } from "../../src/service/cli";
+import { TonWatch } from "../../src/ton-watch";
 import { fakeAddress } from "../fixtures/fake-chain";
 import { type ServiceHarness, setupService, until } from "./harness";
 
@@ -177,10 +178,62 @@ describe("ton-watch run", () => {
     expect(status.addresses).toHaveLength(2);
 
     process.emit("SIGTERM");
-    process.emit("SIGTERM"); // a second signal while stopping is ignored
     await until(() => h.exitSpy.mock.calls.length > 0);
     expect(h.exitSpy.mock.calls).toEqual([[0]]);
     await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
+  });
+
+  test("a second signal while stopping exits 1 at once", async () => {
+    await main(["run"], env({ TON_WATCH_ADDRESSES: A }));
+    process.emit("SIGTERM");
+    process.emit("SIGINT");
+    expect(h.exitSpy.mock.calls[0]).toEqual([1]);
+    await until(() => h.exitSpy.mock.calls.length > 1); // the graceful stop still finishes
+  });
+
+  test("a failing stop is logged and exits 1", async () => {
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    const stop = spyOn(TonWatch.prototype, "stop").mockRejectedValueOnce(new Error("db gone"));
+    try {
+      await main(["run"], env({ TON_WATCH_ADDRESSES: A, TON_WATCH_LOG: "error" }));
+      process.emit("SIGTERM");
+      await until(() => h.exitSpy.mock.calls.length > 0);
+      expect(h.exitSpy.mock.calls).toEqual([[1]]);
+      expect(errors.mock.calls).toContainEqual(["[ton-watch]", "stop failed:", "db gone"]);
+    } finally {
+      stop.mockRestore();
+      errors.mockRestore();
+    }
+  });
+
+  test("a port in use fails before any work starts, releasing what it opened", async () => {
+    const taken = createServer();
+    const port = await new Promise<number>((resolve) =>
+      taken.listen(0, () => resolve((taken.address() as { port: number }).port)),
+    );
+    const start = spyOn(TonWatch.prototype, "start");
+    const stop = spyOn(TonWatch.prototype, "stop");
+    const signalListeners = process.listenerCount("SIGTERM");
+    try {
+      await expect(
+        main(["run"], env({ TON_WATCH_PORT: String(port), TON_WATCH_ADDRESSES: A })),
+      ).rejects.toThrow(`cannot serve HTTP on port ${port}`);
+      expect(start).not.toHaveBeenCalled();
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(process.listenerCount("SIGTERM")).toBe(signalListeners);
+    } finally {
+      start.mockRestore();
+      stop.mockRestore();
+      await new Promise((resolve) => taken.close(resolve));
+    }
+  });
+
+  test("an invalid TON_WATCH_ADDRESSES entry fails before connecting", async () => {
+    await expect(main(["run"], env({ TON_WATCH_ADDRESSES: `${A},nope@genesis` }))).rejects.toThrow(
+      "invalid TON_WATCH_ADDRESSES: nope is not an address",
+    );
+    expect(h.poolSpy).not.toHaveBeenCalled();
+    expect(h.connectSpy).not.toHaveBeenCalled();
   });
 
   test("SIGINT stops too; port 0 serves nothing", async () => {

@@ -7,7 +7,10 @@ export interface WebhookTarget {
   /** Identifies the target; its consumer (and stored cursor) is `webhook:<name>`. */
   name: string;
   url: string;
-  /** HMAC-SHA256 signing secret; null sends unsigned requests. */
+  /**
+   * HMAC-SHA256 signing secret; null sends unsigned requests. An entry's
+   * `"secret": null` turns signing off for that target despite a global secret.
+   */
   secret: string | null;
   /** Raw addresses to deliver; null for every tracked address. */
   addresses: string[] | null;
@@ -65,11 +68,13 @@ export function webhooksFromEnv(env: Env): WebhookTarget[] {
   const defaults = defaultsFromEnv(env);
   const targets: WebhookTarget[] = [];
   if (env.TON_WATCH_WEBHOOK_URL !== undefined) {
-    targets.push({
+    const target = {
       ...defaults,
       name: DEFAULT_WEBHOOK_NAME,
       url: parseUrl("TON_WATCH_WEBHOOK_URL", env.TON_WATCH_WEBHOOK_URL),
-    });
+    };
+    checkRetryRange("TON_WATCH_WEBHOOK_RETRY_MIN_MS", "TON_WATCH_WEBHOOK_RETRY_MAX_MS", target);
+    targets.push(target);
   }
   if (env.TON_WATCH_WEBHOOKS !== undefined) {
     targets.push(...parseTargets(env.TON_WATCH_WEBHOOKS, defaults));
@@ -108,6 +113,17 @@ function defaultsFromEnv(env: Env): TargetDefaults {
       MAX_ATTEMPTS,
     ),
   };
+}
+
+/** Rejects a first retry delay longer than the longest one. */
+function checkRetryRange(
+  minName: string,
+  maxName: string,
+  { retryMinMs, retryMaxMs }: Pick<WebhookTarget, "retryMinMs" | "retryMaxMs">,
+): void {
+  if (retryMinMs > retryMaxMs) {
+    throw new Error(`invalid ${minName}: ${retryMinMs} is above ${maxName} (${retryMaxMs})`);
+  }
 }
 
 function parseTargets(json: string, defaults: TargetDefaults): WebhookTarget[] {
@@ -154,10 +170,10 @@ function parseTarget(entry: unknown, index: number, defaults: TargetDefaults): W
   const order = string("order");
   const from = string("from");
   const onError = string("onError");
-  return {
+  const target: WebhookTarget = {
     name,
     url: parseUrl(`${where}.url`, url),
-    secret: string("secret") ?? defaults.secret,
+    secret: parseSecret(where, fields.secret, defaults.secret),
     addresses: parseAddresses(where, fields.addresses),
     order: order === undefined ? defaults.order : oneOf(`${where}.order`, order, ORDERS),
     from: from === undefined ? defaults.from : parseWebhookFrom(`${where}.from`, from),
@@ -170,6 +186,18 @@ function parseTarget(entry: unknown, index: number, defaults: TargetDefaults): W
         : oneOf(`${where}.onError`, onError, FAILURE_POLICIES),
     maxAttempts: integer("maxAttempts", MAX_ATTEMPTS),
   };
+  checkRetryRange(`${where}.retryMinMs`, "retryMaxMs", target);
+  return target;
+}
+
+/** A non-empty string, `null` for unsigned, or the default when absent. */
+function parseSecret(where: string, value: unknown, fallback: string | null): string | null {
+  if (value === undefined) return fallback;
+  if (value === null) return null;
+  if (typeof value !== "string" || value === "") {
+    throw new Error(`invalid ${where}.secret: a non-empty string, or null for unsigned requests`);
+  }
+  return value;
 }
 
 function parseAddresses(where: string, value: unknown): string[] | null {

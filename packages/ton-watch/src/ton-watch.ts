@@ -218,7 +218,7 @@ export class TonWatch {
   }
 
   /** Deletes a dead letter without redelivering it. False if there was none. */
-  resolveDeadLetter(consumer: string, address: string, lt: bigint): Promise<boolean> {
+  discardDeadLetter(consumer: string, address: string, lt: bigint): Promise<boolean> {
     return this.store.deleteDeadLetter(consumer, toRawAddress(address), lt);
   }
 

@@ -197,9 +197,19 @@ describe("jetton bodies", () => {
     });
   });
 
-  test("forward payload marked as ref but missing it is malformed", () => {
-    const body = parseMessageBody(notification((b) => b.storeBit(1)));
-    expect(body).toMatchObject({ kind: "malformed", op: Op.jettonTransferNotification });
+  test("a malformed forward payload keeps the notification's amount and sender", () => {
+    // The Either bit says "in a ref", but there is no ref.
+    expect(parseMessageBody(notification((b) => b.storeBit(1)))).toMatchObject({
+      kind: "jetton-transfer-notification",
+      amount: 42n,
+      forwardPayload: { kind: "malformed", op: null, reason: "forward payload ref is missing" },
+    });
+    // A ref, but the body ends right after the sender: no Either bit.
+    expect(parseMessageBody(notification((b) => b.storeRef(textComment("x"))))).toMatchObject({
+      kind: "jetton-transfer-notification",
+      amount: 42n,
+      forwardPayload: { kind: "malformed", op: null },
+    });
   });
 
   test("bad comment inside the payload keeps the notification", () => {

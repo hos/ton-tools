@@ -5,6 +5,7 @@ import { configFromEnv, logLevelFromEnv, parseFrom } from "../../src/service/con
 const base = { DATABASE_URL: "postgres://user@host/db" };
 const A = "0:0000000000000000000000000000000000000000000000000000000000000001";
 const B = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
+const B_RAW = "0:0000000000000000000000000000000000000000000000000000000000000000";
 
 describe("configFromEnv defaults", () => {
   test("only DATABASE_URL set", () => {
@@ -195,16 +196,28 @@ describe("TON_WATCH_ADDRESSES", () => {
         .addresses,
     ).toEqual([
       { address: A, from: "now" },
-      { address: B, from: "genesis" },
+      { address: B_RAW, from: "genesis" },
       { address: A, from: 12345n },
     ]);
   });
 
-  test("raw addresses keep their colon; `@now` and a trailing `@` mean now", () => {
+  test("addresses come out raw; `@now` and a trailing `@` mean now", () => {
     expect(configFromEnv({ ...base, TON_WATCH_ADDRESSES: `${A}@now,${B}@` }).addresses).toEqual([
       { address: A, from: "now" },
-      { address: B, from: "now" },
+      { address: B_RAW, from: "now" },
     ]);
+  });
+
+  test("an invalid address fails the whole config", () => {
+    for (const [list, bad] of [
+      [`${A},nope`, "nope"],
+      [`${A},@genesis`, "(empty)"],
+      [`${B.slice(0, -1)}x@now`, `${B.slice(0, -1)}x`],
+    ]) {
+      expect(() => configFromEnv({ ...base, TON_WATCH_ADDRESSES: list })).toThrow(
+        `invalid TON_WATCH_ADDRESSES: ${bad} is not an address`,
+      );
+    }
   });
 
   test("only separators means no addresses", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { beginCell, Dictionary } from "@ton/core";
+import { Address, beginCell, Dictionary } from "@ton/core";
 
 import { toIndexedTx } from "../../src/core/types";
 import { parseMessage } from "../../src/parse/message";
@@ -219,5 +219,15 @@ describe("parseTransaction", () => {
       true,
     );
     expect(() => parseTransaction(tx, { address: OTHER })).toThrow("not the transaction's account");
+  });
+
+  test("address option with the right hash but another workchain is rejected", () => {
+    const masterchain = new Address(-1, ACCOUNT.hash);
+    const { tx, record } = buildTx({ inMessage: internalMessage() });
+    for (const input of [tx, record]) {
+      expect(() => parseTransaction(input, { address: masterchain })).toThrow(
+        "not the transaction's account",
+      );
+    }
   });
 });

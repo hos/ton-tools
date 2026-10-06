@@ -1,7 +1,7 @@
 import type { Slice } from "@ton/core";
 
 import { decodeComment, isCommentOp } from "./comment";
-import { DecodeError } from "./reader";
+import { failureReason, malformed } from "./reader";
 import type { ForwardPayload } from "./types";
 
 const EMPTY: ForwardPayload = { kind: "empty" };
@@ -11,12 +11,23 @@ const EMPTY: ForwardPayload = { kind: "empty" };
  * (bit 0) or in the next ref (bit 1). A slice that ends right before the
  * `Either` bit is read as an empty payload, since some deployed jetton wallets
  * omit it.
+ *
+ * Never throws: a payload that does not fit the layout (the ref bit set without
+ * a ref, refs without the `Either` bit) is returned as `Malformed`, so the
+ * fields read before it — the amount and sender of a transfer — are kept.
  */
 export function readForwardPayload(slice: Slice): ForwardPayload {
   if (slice.remainingBits === 0 && slice.remainingRefs === 0) return EMPTY;
-  if (!slice.loadBit()) return decodePayload(slice);
-  if (slice.remainingRefs === 0) throw new DecodeError("forward payload ref is missing");
-  return decodePayload(slice.loadRef().beginParse());
+  if (slice.remainingBits === 0) {
+    return malformed(null, "forward payload has refs but no Either bit");
+  }
+  try {
+    if (!slice.loadBit()) return decodePayload(slice);
+    if (slice.remainingRefs === 0) return malformed(null, "forward payload ref is missing");
+    return decodePayload(slice.loadRef().beginParse());
+  } catch (error) {
+    return malformed(null, `forward payload: ${failureReason(error)}`);
+  }
 }
 
 function decodePayload(slice: Slice): ForwardPayload {

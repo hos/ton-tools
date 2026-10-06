@@ -3,6 +3,7 @@ import { classifyError } from "../core/errors";
 import type { TxId } from "../core/types";
 import type { Metrics } from "../metrics/metrics";
 import type { TxSource } from "../source/source";
+import { PendingTasks } from "../util/async";
 import type { Logger } from "../util/logger";
 import type { SplitOptions } from "./options";
 import type { Walk } from "./walk";
@@ -18,6 +19,8 @@ const MIN_PAGES_BEFORE_SPLIT = 3;
  * hands the pieces between them to the scheduler as walks of their own.
  */
 export class WalkSplitter {
+  private readonly background = new PendingTasks();
+
   constructor(
     private readonly settings: Required<SplitOptions>,
     /** Must implement `findTxNear`; see `resolveSplit`. */
@@ -43,9 +46,16 @@ export class WalkSplitter {
 
     const targets = evenlySpaced(walk.floorLt, walk.cursor.lt, parts);
     this.metrics.inc("ton_watch_splits_total");
-    void Promise.all(targets.map((lt) => this.findSplitPoint(walk.address, lt, ltPerTx))).then(
-      (found) => this.splitAt(walk, found, remainingTxs),
+    this.background.track(
+      Promise.all(targets.map((lt) => this.findSplitPoint(walk.address, lt, ltPerTx))).then(
+        (found) => this.splitAt(walk, found, remainingTxs),
+      ),
     );
+  }
+
+  /** Resolves once every split started by `maybeSplit` has been looked up and applied. */
+  settled(): Promise<void> {
+    return this.background.settled();
   }
 
   private findSplitPoint(address: string, lt: bigint, ltPerTx: number): Promise<TxId | null> {

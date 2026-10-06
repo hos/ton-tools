@@ -159,6 +159,30 @@ describe("Maintenance.scanGaps", () => {
 });
 
 describe("Maintenance.onWalkFinished", () => {
+  test("settled() waits for the frontier updates still running", async () => {
+    const s = await setup();
+    await s.store.write(A, s.chain.txs(A).slice(0, 5));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const advance = s.store.advanceFrontier.bind(s.store);
+    s.store.advanceFrontier = async (address) => {
+      await gate;
+      return advance(address);
+    };
+    s.maintenance.onWalkFinished(A);
+    let settled = false;
+    const done = s.maintenance.settled().then(() => {
+      settled = true;
+    });
+    await Bun.sleep(5);
+    expect(settled).toBe(false);
+    release();
+    await done;
+    expect(tracked(s, A).state.frontier?.lt).toBe(s.chain.txs(A)[4]!.lt);
+  });
+
   test("moves the frontier in the background and flags the address", async () => {
     const s = await setup();
     const txs = s.chain.txs(A);

@@ -42,8 +42,16 @@ export function resolveSettings(options: ProcessOptions): ConsumerSettings {
   if (!LOCK_MODES.has(settings.lock)) {
     throw new RangeError(`lock must be "fail" or "wait", got ${settings.lock}`);
   }
-  if (!(settings.lagIntervalMs >= 0)) {
-    throw new RangeError(`lagIntervalMs must be 0 or more, got ${settings.lagIntervalMs}`);
-  }
+  assertDuration("pollMs", settings.pollMs, 1);
+  assertDuration("retryMinMs", settings.retryMinMs, 0);
+  assertDuration("retryMaxMs", settings.retryMaxMs, settings.retryMinMs);
+  assertDuration("lagIntervalMs", settings.lagIntervalMs, 0);
   return settings;
+}
+
+/** Throws unless `value` is a finite number of milliseconds of at least `min`. */
+function assertDuration(name: string, value: number, min: number): void {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min) {
+    throw new RangeError(`${name} must be a finite number of ms, at least ${min}; got ${value}`);
+  }
 }

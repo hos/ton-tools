@@ -15,7 +15,7 @@ import { SerialQueue } from "../util/async";
 import { exponentialBackoff } from "../util/backoff";
 import { type Logger, silentLogger } from "../util/logger";
 import { rewindCursors } from "./cursors";
-import { ConsumerLockedError } from "./errors";
+import { ConsumerLockedError, CursorConflictError } from "./errors";
 import { measureLag, recordLagGauges } from "./lag";
 import { lockConsumer, tryLockConsumer } from "./lock";
 import { type ConsumerSettings, resolveSettings } from "./options";
@@ -45,6 +45,33 @@ interface Lane {
 
 /** What became of one transaction handed to the handler. */
 type Outcome = "delivered" | "given-up" | "halted";
+
+/** One `start()`…`stop()` cycle. */
+interface Run {
+  /** The lock it delivers under; null while waiting for it (or after losing it). */
+  lock: ConsumerLock | null;
+  loop: Promise<void>;
+}
+
+/**
+ * Where a consumer is in its lifecycle. `start()` and `stop()` queue transitions
+ * that run one at a time: stopped → starting (taking the lock) → running →
+ * stopping (ending the round, releasing the lock) → stopped.
+ */
+type Lifecycle =
+  | { phase: "stopped" }
+  | { phase: "starting" }
+  | { phase: "running"; run: Run }
+  | { phase: "stopping"; run: Run };
+
+/** What a delivery round runs under. It ends early once `shouldContinue` says so. */
+interface Round {
+  lock: ConsumerLock;
+  /** The started run the round belongs to; null for `runOnce()` outside `start()`. */
+  run: Run | null;
+  /** A cursor write found the cursor moved by someone else. */
+  conflict: boolean;
+}
 
 export interface ConsumerDeps {
   /** Wake up on these instead of waiting for the next poll. */
@@ -82,14 +109,13 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
   private readonly serial = new SerialQueue();
   /** Pending requests for the current round to end early (a rewind waiting for it). */
   private yieldRequests = 0;
-  /** Held by a started consumer for its whole run. */
-  private lock: ConsumerLock | null = null;
-  private waitingForLock = false;
-  private running = false;
-  private startPending = false;
+  private lifecycle: Lifecycle = { phase: "stopped" };
+  /** Whether the latest `start()` / `stop()` call was a start. */
+  private wanted = false;
+  /** Lifecycle transitions, one at a time. */
+  private readonly transitions = new SerialQueue();
   /** The latest `start()`'s lock attempt, for `ready()`. */
   private startAttempt: Promise<void> | null = null;
-  private loop: Promise<void> | null = null;
   private wakeUp: (() => void) | null = null;
   /** Something changed while a round was running: start another right away. */
   private wakePending = false;
@@ -118,14 +144,13 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
 
   /**
    * Takes the consumer lock and starts delivering in the background. Await
-   * `ready()` to learn whether it got the lock. Calling it while started does nothing.
+   * `ready()` to learn whether it got the lock. Calling it while started does
+   * nothing; while a `stop()` is finishing, it starts again once that is done.
    */
   start(): this {
-    if (this.running || this.startPending) return this;
-    this.startPending = true;
-    const attempt = this.begin().finally(() => {
-      this.startPending = false;
-    });
+    if (this.wanted) return this;
+    this.wanted = true;
+    const attempt = this.transitions.run(() => this.begin());
     attempt.catch((error: unknown) => {
       this.logger.error(`consumer ${this.name}: not started:`, errorMessage(error));
     });
@@ -142,16 +167,18 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     return this.startAttempt ?? Promise.resolve();
   }
 
-  /** Stops after the transaction being handled (if any) is committed, then releases the lock. */
-  async stop(): Promise<void> {
-    await this.startAttempt?.catch(() => {});
-    this.running = false;
-    this.unsubscribe?.();
-    this.unsubscribe = null;
-    this.wake();
-    await this.loop;
-    this.loop = null;
-    await this.releaseLock();
+  /**
+   * Stops after the transaction being handled (if any) is committed, then releases
+   * the lock. Resolves once stopped; a `start()` still taking the lock is undone.
+   */
+  stop(): Promise<void> {
+    this.wanted = false;
+    // End the round in progress now, not only once the transition gets its turn.
+    if (this.lifecycle.phase === "running") {
+      this.lifecycle = { phase: "stopping", run: this.lifecycle.run };
+      this.wake();
+    }
+    return this.transitions.run(() => this.end());
   }
 
   /** Looks for new transactions now instead of at the next poll. */
@@ -162,10 +189,11 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
 
   status(): ConsumerStatus {
     const now = Date.now();
+    const { lifecycle } = this;
     return {
       name: this.name,
-      running: this.running,
-      waitingForLock: this.waitingForLock,
+      running: lifecycle.phase === "running",
+      waitingForLock: lifecycle.phase === "running" && !lifecycle.run.lock?.held,
       delivered: this.delivered,
       lag: this.lastLag,
       addresses: [...this.lanes.values()].map((lane) => ({
@@ -181,10 +209,16 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
   /**
    * Runs one delivery round. Resolves to the number of transactions the cursors
    * moved past (delivered, skipped or dead-lettered). Outside `start()` it takes
-   * the consumer lock for the round and releases it afterwards.
+   * the consumer lock for the round and releases it afterwards. Rejects with
+   * `CursorConflictError` if a cursor was moved by someone else meanwhile (the
+   * next round resumes from there).
    */
   runOnce(): Promise<number> {
-    return this.serial.run(() => this.whileLocked(this.settings.lock, () => this.round()));
+    return this.serial.run(() =>
+      this.whileLocked(this.settings.lock, (lock) =>
+        this.round({ lock, run: this.activeRun(), conflict: false }),
+      ),
+    );
   }
 
   /**
@@ -233,7 +267,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
   }
 
   /** Deletes a dead letter without redelivering it. False if there was none. */
-  resolveDeadLetter(address: string, lt: bigint): Promise<boolean> {
+  discardDeadLetter(address: string, lt: bigint): Promise<boolean> {
     return this.store.deleteDeadLetter(this.name, address, lt);
   }
 
@@ -242,7 +276,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
    * then deletes the dead letter — atomically with the handler's `ctx.db` writes
    * when transactional. It is out of order by nature and may run alongside live
    * delivery. If the handler throws, the dead letter stays (with the new error)
-   * and the error is rethrown.
+   * and the error is rethrown — unless it was discarded meanwhile, which stands.
    */
   async replayDeadLetter(address: string, lt: bigint): Promise<void> {
     const [letter] = await this.store.listDeadLetters({ consumer: this.name, address, lt });
@@ -251,7 +285,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     if (!record?.hash.equals(letter.hash)) {
       throw new Error(`transaction ${address} lt ${lt} is no longer stored`);
     }
-    const resolvedElsewhere = new Error(`dead letter ${address} lt ${lt} was resolved meanwhile`);
+    const resolvedElsewhere = new Error(`dead letter ${address} lt ${lt} was discarded meanwhile`);
     try {
       await this.withDeliveryStore(async (store, db) => {
         await this.handler(toIndexedTx(record), {
@@ -264,7 +298,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
       });
     } catch (error) {
       if (error !== resolvedElsewhere) {
-        await this.store.putDeadLetter({
+        await this.store.updateDeadLetter({
           ...letter,
           error: errorMessage(error),
           attempts: letter.attempts + 1,
@@ -276,15 +310,50 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     this.metrics.inc("ton_watch_consumer_replayed_total", { consumer: this.name });
   }
 
+  /** The run that is delivering (not stopping), if any. */
+  private activeRun(): Run | null {
+    return this.lifecycle.phase === "running" ? this.lifecycle.run : null;
+  }
+
+  /** Transition to running, unless a `stop()` came after the `start()`. */
   private async begin(): Promise<void> {
-    const lock = await tryLockConsumer(this.store, this.name);
-    if (!lock && this.settings.lock === "fail") throw new ConsumerLockedError(this.name);
-    this.lock = lock;
+    if (!this.wanted || this.lifecycle.phase !== "stopped") return;
+    this.lifecycle = { phase: "starting" };
+    let lock: ConsumerLock | null;
+    try {
+      lock = await tryLockConsumer(this.store, this.name);
+      if (!lock && this.settings.lock === "fail") throw new ConsumerLockedError(this.name);
+    } catch (error) {
+      this.lifecycle = { phase: "stopped" };
+      this.wanted = false;
+      throw error;
+    }
+    if (!this.wanted) {
+      this.lifecycle = { phase: "stopped" };
+      await this.releaseLock(lock);
+      return;
+    }
+    const run: Run = { lock, loop: Promise.resolve() };
+    this.lifecycle = { phase: "running", run };
     this.lanesLoaded = false;
-    this.waitingForLock = !lock;
-    this.running = true;
     this.subscribe();
-    this.loop = this.runLoop();
+    run.loop = this.runLoop(run);
+  }
+
+  /** Transition to stopped: ends the loop, then releases the run's lock (once). */
+  private async end(): Promise<void> {
+    const { lifecycle } = this;
+    if (lifecycle.phase !== "running" && lifecycle.phase !== "stopping") return;
+    const { run } = lifecycle;
+    this.lifecycle = { phase: "stopping", run };
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.wake();
+    await run.loop;
+    const lock = run.lock;
+    run.lock = null;
+    await this.releaseLock(lock);
+    this.lifecycle = { phase: "stopped" };
   }
 
   private subscribe(): void {
@@ -299,10 +368,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     };
   }
 
-  private async releaseLock(): Promise<void> {
-    const lock = this.lock;
-    this.lock = null;
-    this.waitingForLock = false;
+  private async releaseLock(lock: ConsumerLock | null): Promise<void> {
     await lock?.release().catch((error: unknown) => {
       this.logger.warn(`consumer ${this.name}: releasing its lock failed:`, errorMessage(error));
     });
@@ -312,59 +378,70 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
    * Runs `fn` under the consumer lock: the one a started consumer holds, or one
    * taken for this call only.
    */
-  private async whileLocked<T>(mode: "fail" | "wait", fn: () => Promise<T>): Promise<T> {
-    if (this.lock?.held) return fn();
+  private async whileLocked<T>(
+    mode: "fail" | "wait",
+    fn: (lock: ConsumerLock) => Promise<T>,
+  ): Promise<T> {
+    const held = this.activeRun()?.lock;
+    if (held?.held) return fn(held);
     const lock = await lockConsumer(this.store, this.name, mode, this.settings.pollMs);
     // Another instance may have delivered while we did not hold the lock.
     this.lanesLoaded = false;
     try {
-      return await fn();
+      return await fn(lock);
     } finally {
       await lock.release();
     }
   }
 
-  /** Holds the lock, re-taking it if it was lost. False while another instance has it. */
-  private async ensureLock(): Promise<boolean> {
-    if (this.lock?.held) return true;
-    if (this.lock) {
+  /** The run's lock, re-taken if it was lost; null while another instance has it. */
+  private async ensureLock(run: Run): Promise<ConsumerLock | null> {
+    if (run.lock?.held) return run.lock;
+    if (run.lock) {
       this.logger.warn(`consumer ${this.name}: lost its lock (connection closed), re-taking it`);
-      await this.releaseLock();
+      const lost = run.lock;
+      run.lock = null;
+      await this.releaseLock(lost);
     }
     try {
-      this.lock = await tryLockConsumer(this.store, this.name);
+      run.lock = await tryLockConsumer(this.store, this.name);
     } catch (error) {
       this.logger.warn(`consumer ${this.name}: taking its lock failed:`, errorMessage(error));
     }
-    this.waitingForLock = !this.lock;
-    if (this.lock) this.lanesLoaded = false;
-    return this.lock !== null;
+    // Another instance may have delivered while we did not hold the lock.
+    if (run.lock) this.lanesLoaded = false;
+    return run.lock;
   }
 
   /**
-   * A round keeps delivering while the consumer runs and nothing (a rewind) waits
-   * for it. A `runOnce()` call outside `start()` always completes its round; once
-   * started, `stop()` ends it early.
+   * A round keeps delivering while its lock is held, no cursor conflict occurred,
+   * nothing (a rewind) waits for it, and — once started — until `stop()`.
    */
-  private shouldContinue(): boolean {
-    return (this.running || this.loop === null) && this.yieldRequests === 0;
+  private shouldContinue(round: Round): boolean {
+    return (
+      round.lock.held &&
+      !round.conflict &&
+      this.yieldRequests === 0 &&
+      (round.run === null || this.activeRun() === round.run)
+    );
   }
 
-  private async runLoop(): Promise<void> {
-    while (this.running) {
-      if (!(await this.ensureLock())) {
+  private async runLoop(run: Run): Promise<void> {
+    while (this.activeRun() === run) {
+      const lock = await this.ensureLock(run);
+      if (!lock) {
         await this.sleepUntilWoken(this.settings.pollMs);
         continue;
       }
       this.wakePending = false;
       let advanced = 0;
       try {
-        advanced = await this.serial.run(() => this.round());
+        advanced = await this.serial.run(() => this.round({ lock, run, conflict: false }));
       } catch (error) {
         this.logger.warn(`consumer ${this.name}: round failed:`, errorMessage(error));
       }
       await this.measureLagIfDue();
-      if (!this.running) break;
+      if (this.activeRun() !== run) break;
       if (advanced > 0 || this.wakePending) continue;
       await this.sleepUntilWoken(Math.min(this.settings.pollMs, this.msUntilNextRetry()));
     }
@@ -400,20 +477,21 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     this.wakeUp = null;
   }
 
-  private async round(): Promise<number> {
+  private async round(round: Round): Promise<number> {
     const states = (await this.store.listAddresses()).filter(
       (state) => !this.onlyAddresses || this.onlyAddresses.has(state.address),
     );
     await this.syncLanes(states);
     return this.settings.order === "global"
-      ? this.deliverGlobal(states)
-      : this.deliverPerAddress(states);
+      ? this.deliverGlobal(states, round)
+      : this.deliverPerAddress(states, round);
   }
 
   /**
-   * Creates lanes for new addresses. After the lock was (re)taken, first reloads
-   * every cursor and failure count from the store; a halt survives the reload if
-   * its cursor did not move.
+   * Creates lanes for new addresses and drops those of addresses no longer
+   * delivered (removed), so their halts hold nothing back. After the lock was
+   * (re)taken, first reloads every cursor and failure count from the store; a halt
+   * survives the reload if its cursor did not move.
    */
   private async syncLanes(states: AddressState[]): Promise<void> {
     let stored: Map<string, CursorState> | null = null;
@@ -426,6 +504,11 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     if (stored) {
       this.lanes.clear();
       this.lanesLoaded = true;
+    } else {
+      const current = new Set(states.map((state) => state.address));
+      for (const address of this.lanes.keys()) {
+        if (!current.has(address)) this.lanes.delete(address);
+      }
     }
     for (const { address } of states) {
       if (this.lanes.has(address)) continue;
@@ -446,9 +529,13 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     if (lane.cursor !== null) return lane.cursor;
     let cursor = await this.store.getCursor(this.name, state.address);
     if (cursor === null) {
-      cursor = this.initialCursor(state);
       // Persist so a restart does not re-resolve "now" to a later point.
-      await this.store.setCursor(this.name, state.address, cursor);
+      const initial = this.initialCursor(state);
+      const created = await this.store.compareAndSetCursor(this.name, state.address, null, initial);
+      // Created by someone else first: theirs stands.
+      cursor = created
+        ? initial
+        : ((await this.store.getCursor(this.name, state.address)) ?? initial);
     }
     lane.cursor = cursor;
     return cursor;
@@ -474,21 +561,48 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     return fn(this.store);
   }
 
-  /** Hands one transaction to the handler and commits the cursor. */
-  private async deliver(lane: Lane, record: TxRecord): Promise<Outcome> {
+  /**
+   * Hands one transaction to the handler and commits the cursor. A cursor
+   * conflict ends the round and makes the next one reload every lane.
+   */
+  private async deliver(lane: Lane, record: TxRecord, round: Round): Promise<Outcome> {
+    try {
+      return await this.attempt(lane, record);
+    } catch (error) {
+      if (error instanceof CursorConflictError) {
+        round.conflict = true;
+        this.lanesLoaded = false;
+      }
+      throw error;
+    }
+  }
+
+  private async attempt(lane: Lane, record: TxRecord): Promise<Outcome> {
     const tx = toIndexedTx(record);
     try {
       await this.withDeliveryStore(async (store, db) => {
         await this.handler(tx, { consumer: this.name, address: lane.address, db, replay: false });
-        await store.setCursor(this.name, lane.address, record.lt);
+        await this.moveCursor(store, lane, record.lt);
       });
     } catch (error) {
+      if (error instanceof CursorConflictError) throw error;
       return this.handleFailure(lane, record, error);
     }
     this.advance(lane, record.lt);
     this.delivered++;
     this.metrics.inc("ton_watch_consumer_delivered_total", { consumer: this.name });
     return "delivered";
+  }
+
+  /**
+   * Moves the stored cursor from where this lane last saw it to `lt`; throws
+   * `CursorConflictError` (rolling back the enclosing transaction) if it is not
+   * there any more.
+   */
+  private async moveCursor(store: Store, lane: Lane, lt: bigint): Promise<void> {
+    if (!(await store.compareAndSetCursor(this.name, lane.address, lane.cursor, lt))) {
+      throw new CursorConflictError(this.name, lane.address, lane.cursor);
+    }
   }
 
   private advance(lane: Lane, lt: bigint): void {
@@ -543,7 +657,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     const deadLetter = this.settings.onError === "dead-letter";
     await runAtomically(this.store, async (store) => {
       if (deadLetter) await store.putDeadLetter(letter);
-      await store.setCursor(this.name, lane.address, letter.lt);
+      await this.moveCursor(store, lane, letter.lt);
     });
     this.advance(lane, letter.lt);
     const labels = { consumer: this.name };
@@ -578,18 +692,18 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
    * round ends only once every worker has stopped, so no lane is ever delivered by
    * two rounds at once; a store error fails the round after that.
    */
-  private async deliverPerAddress(states: AddressState[]): Promise<number> {
+  private async deliverPerAddress(states: AddressState[], round: Round): Promise<number> {
     const now = Date.now();
     const ready = states.filter((state) => this.lanes.get(state.address)!.notBefore <= now);
     let total = 0;
     let next = 0;
     const worker = async () => {
-      while (this.shouldContinue()) {
+      while (this.shouldContinue(round)) {
         const state = ready[next++];
         if (!state) return;
         // Not `total += await …`: that reads `total` before the await and loses
         // what the other workers added meanwhile.
-        const advanced = await this.deliverLane(this.lanes.get(state.address)!, state);
+        const advanced = await this.deliverLane(this.lanes.get(state.address)!, state, round);
         total += advanced;
       }
     };
@@ -603,15 +717,15 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
   }
 
   /** One batch of one address, up to its frontier. Resolves to the number moved past. */
-  private async deliverLane(lane: Lane, state: AddressState): Promise<number> {
+  private async deliverLane(lane: Lane, state: AddressState, round: Round): Promise<number> {
     const cursor = await this.cursorFor(lane, state);
     const uptoLt = state.frontier?.lt;
     if (uptoLt === undefined || cursor >= uptoLt) return 0;
     const batch = await this.store.read(state.address, cursor, uptoLt, this.settings.batchSize);
     let advanced = 0;
     for (const record of batch) {
-      if (!this.shouldContinue()) break;
-      if ((await this.deliver(lane, record)) === "halted") break;
+      if (!this.shouldContinue(round)) break;
+      if ((await this.deliver(lane, record, round)) === "halted") break;
       advanced++;
     }
     return advanced;
@@ -622,7 +736,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
    * up to which every address is known complete. Any halted address halts all;
    * a transaction given up on (skip / dead letter) does not.
    */
-  private async deliverGlobal(states: AddressState[]): Promise<number> {
+  private async deliverGlobal(states: AddressState[], round: Round): Promise<number> {
     const watermark = watermarkOf(states);
     if (watermark === null) return 0;
     const now = Date.now();
@@ -648,11 +762,11 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     await Promise.all(states.map(fill));
 
     let total = 0;
-    while (this.shouldContinue()) {
+    while (this.shouldContinue(round)) {
       const buffer = earliestBuffered(states, buffers);
       if (!buffer) break;
       const record = buffer.items[0]!;
-      if ((await this.deliver(this.lanes.get(record.address)!, record)) === "halted") break;
+      if ((await this.deliver(this.lanes.get(record.address)!, record, round)) === "halted") break;
       total++;
       buffer.items.shift();
       if (buffer.items.length === 0 && !buffer.exhausted) await fill(buffer.state);

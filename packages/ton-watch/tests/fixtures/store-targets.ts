@@ -15,6 +15,12 @@ export interface StoreTarget {
   makePair(): Promise<[Store, Store]>;
   /** Real Postgres: separate connections, so session locks are truly separate. */
   realPostgres: boolean;
+  /**
+   * One connection for everything (PGlite): a query outside an open transaction
+   * waits for it, so a handler must not use the store directly while delivering
+   * transactionally.
+   */
+  singleSession: boolean;
 }
 
 let seq = 0;
@@ -23,6 +29,7 @@ const freshSchema = (prefix: string) => `${prefix}_${process.pid}_${seq++}`;
 const memory: StoreTarget = {
   name: "MemoryStore",
   realPostgres: false,
+  singleSession: false,
   make: async () => new MemoryStore(),
   makePair: async () => {
     const store = new MemoryStore();
@@ -40,6 +47,7 @@ const sharedPglite = () => {
 const pgliteTarget: StoreTarget = {
   name: "PgStore (PGlite)",
   realPostgres: false,
+  singleSession: true,
   async make() {
     const store = new PgStore(sharedPglite(), { schema: freshSchema("cs") });
     await store.migrate();
@@ -65,6 +73,7 @@ function postgresTarget(url: string): StoreTarget {
   return {
     name: "PgStore (postgres)",
     realPostgres: true,
+    singleSession: false,
     async make() {
       const schema = freshSchema("tw_cs");
       schemas.push(schema);
