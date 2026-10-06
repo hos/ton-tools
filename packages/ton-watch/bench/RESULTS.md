@@ -88,3 +88,17 @@ Measured 2026-10-06: `getTransactions` for real transactions of `EQBYTuYbLf8INxF
 |---|---:|:---:|---|---:|---:|---:|---:|---:|:---:|---:|
 | after-7d | 7d | on | postgres | 709477 | 8.5 | 1,396 | 67803 | 133 | 10/10 | 0 |
 | before-7d | 7d | off | postgres | 709710 | 28.1 | 422 | 44395 | 26.4 | 10/10 | 0 |
+
+## Idle cost
+
+### current (2026-10-06 13:52)
+
+| detection | addresses | minutes | calls/min | tx indexed meanwhile | lag p50 | lag p99 |
+|---|---:|---:|---:|---:|---:|---:|
+| poll | 1000 | 4.0 | 4,125 | 4087 | 28s | 28s |
+
+### blocks-after-case-fix (2026-10-06 13:59)
+
+| detection | addresses | minutes | calls/min | tx indexed meanwhile | lag p50 | lag p99 |
+|---|---:|---:|---:|---:|---:|---:|
+| blocks | 1000 | 4.0 | 1,229 | 4035 | 0s | 2s |

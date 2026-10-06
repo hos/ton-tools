@@ -30,6 +30,8 @@ export interface IndexerOptions {
   autoBlocksThreshold?: number;
   /** Poll mode: an address that keeps not changing is polled at most this rarely. Default 30s. */
   maxIdlePollMs?: number;
+  /** Blocks mode: every address is also checked directly at least this often. Default 10 min. */
+  reconcileMs?: number;
   /** Every address is rescanned for gaps this often (changed ones every tick). Default 60s. */
   gapScanMs?: number;
   /** Retry delay bounds for a failing range fetch. */
@@ -87,6 +89,10 @@ interface Runtime {
   known?: Known;
   nextPollAt: number;
   idleStreak: number;
+  /** Last time the address's on-chain last tx was read directly (not via block listing). */
+  verifiedAt: number;
+  /** What block listing believed when a reconciliation poll was sent. */
+  reconciling?: TxId | null;
   dirty: boolean;
   gapsOpen: number;
 }
@@ -143,6 +149,7 @@ export class Indexer extends EventEmitter {
       autoBlocksThreshold: options.autoBlocksThreshold ?? 50,
       maxIdlePollMs: options.maxIdlePollMs ?? 30_000,
       gapScanMs: options.gapScanMs ?? 60_000,
+      reconcileMs: options.reconcileMs ?? 600_000,
       retryMinMs: options.retryMinMs ?? 1_000,
       retryMaxMs: options.retryMaxMs ?? 60_000,
       archiveRetryMs: options.archiveRetryMs ?? 600_000,
@@ -285,6 +292,7 @@ export class Indexer extends EventEmitter {
           state,
           nextPollAt: 0,
           idleStreak: 0,
+          verifiedAt: 0,
           dirty: true,
           gapsOpen: 0,
         });
@@ -329,10 +337,22 @@ export class Indexer extends EventEmitter {
             toPoll.push(rt);
             continue;
           }
-          const hit = touched.get(rt.state.address);
+          // Raw addresses may be stored in either hex case; block listings are lowercase.
+          const hit = touched.get(rt.state.address.toLowerCase());
           if (hit && (!rt.known.last || hit.lt > rt.known.last.lt)) rt.known.last = hit;
           rt.known.syncLt = tip.syncLt;
           rt.known.utime = tip.utime;
+        }
+        // Reconciliation: re-verify every address directly at least once per
+        // `reconcileMs`, spread over ticks, so a transaction block listing missed
+        // (for whatever reason) is found within that bound instead of never.
+        const due = [...this.runtimes.values()]
+          .filter((rt) => rt.known && now - rt.verifiedAt >= this.o.reconcileMs)
+          .sort((a, b) => a.verifiedAt - b.verifiedAt);
+        const perTick = Math.ceil((this.runtimes.size * this.o.tickMs) / this.o.reconcileMs) + 1;
+        for (const rt of due.slice(0, perTick)) {
+          rt.reconciling = rt.known!.last;
+          toPoll.push(rt);
         }
       } else {
         this.metrics.inc("ton_watch_detect_fallbacks_total");
@@ -355,6 +375,14 @@ export class Indexer extends EventEmitter {
     const results = await this.mapLimit(runtimes, async (rt) => {
       try {
         const last = await this.source.getLastTx(rt.state.address, tip);
+        if (rt.reconciling !== undefined) {
+          if (!txIdEquals(rt.reconciling, last) && (last?.lt ?? 0n) > (rt.reconciling?.lt ?? 0n)) {
+            this.metrics.inc("ton_watch_reconcile_misses_total");
+            this.logger.warn(`[${toFriendlyAddress(rt.state.address)}] block listing missed a transaction; reconciled`);
+          }
+          rt.reconciling = undefined;
+        }
+        rt.verifiedAt = now;
         const changed = !rt.known || !txIdEquals(rt.known.last, last);
         rt.known = { last, syncLt: tip.syncLt, utime: tip.utime };
         rt.idleStreak = changed ? 0 : rt.idleStreak + 1;

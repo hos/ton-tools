@@ -232,6 +232,7 @@ Same 1-hour window, same liteserver pool, same parallelism (64):
 - **Parallelism** (1000 addresses, 1h): 712 s sequential → 45 s at concurrency 64.
 - **Long ranges** (iteration on the measurements): one address's history is a sequential walk (~120 tx/s, one page per round trip). Splitting long ranges via block listings made a single busy address **2.6× faster** (32.7 s → 12.6 s) and 10 addresses **2.8×** (39.9 s → 14.2 s), at the cost of more calls.
 - **7-day outage, 10 busy addresses (~100k tx/day combined)**: 709,477 transactions caught up in **8.5 minutes** into Postgres, all complete, no stuck ranges. Without range splitting the same catch-up took 28 minutes.
+- **Watching 1000 addresses, steady state** (4-minute runs): detection costs **~330 calls/min in `blocks` mode** (list each new shard block once) versus **~3,650/min in `poll` mode**, about 11× less, and lag drops from ~28 s to ~0–2 s. Fetching the transactions themselves comes on top (these sampled addresses made ~1,000 tx/min). `blocks` mode also re-checks every address directly once per 10 minutes (~100 calls/min at 1000 addresses), so a transaction the listing missed is found within that bound. `auto` picks `blocks` from 50 addresses up.
 - **toncenter plug-in in `boost` mode, free tier (1 request/s)**: a single busy address's hour (3.9k tx) took **4.2 s and 35 calls**, against 12.6 s / 659 calls with liteservers and splitting. At 10 addresses the 1 request/s budget is the limit (13.8 s, same as without it). An API key raises it.
 
 ## When to use this, and when not
@@ -253,7 +254,7 @@ Use a full-chain indexer ([ton-indexer](https://github.com/toncenter/ton-indexer
 ## Development
 
 ```sh
-bun test                                   # 91 tests: unit, indexer, consumer, end-to-end, PGlite; deterministic
+bun test                                   # 93 tests: unit, indexer, consumer, end-to-end, PGlite; deterministic
 TEST_DATABASE_URL=postgres://… bun test    # also run the store contract on real Postgres
 LIVE=1 bun test tests/live.test.ts         # mainnet: last 3000 txs of a busy address vs toncenter,
                                            # toncenter pages vs liteserver pages

@@ -216,6 +216,31 @@ describe("change detection cost", () => {
     expect(large).toBe(40); // getTip + getTouchedAccounts per tick
   });
 
+  test("blocks mode matches addresses stored in uppercase hex", async () => {
+    const { chain, store, source } = await setup(0, 0);
+    const upper = fakeAddress(0xabcdef).toUpperCase();
+    const lower = upper.toLowerCase();
+    chain.grow([lower], 3);
+    await store.addAddress(upper, { startLt: chain.tip().syncLt });
+    const indexer = new Indexer({ store, source, detect: "blocks" });
+    await indexer.syncOnce();
+    chain.grow([lower], 5);
+    await indexer.syncOnce();
+    expect((await store.read(upper, 0n, 1n << 62n, 100)).length).toBe(5);
+  });
+
+  test("blocks mode reconciles: a transaction the listing missed is still found", async () => {
+    const { chain, addresses, store, source } = await setup(3, 2);
+    const indexer = new Indexer({ store, source, detect: "blocks", reconcileMs: 1 });
+    await indexer.syncOnce();
+    source.faults = { hideFromListing: new Set([addresses[0]!]) };
+    chain.grow(addresses, 4);
+    await new Promise((r) => setTimeout(r, 5));
+    await indexer.syncOnce();
+    await expectComplete(store, chain, addresses);
+    expect(indexer.metrics.get("ton_watch_reconcile_misses_total")).toBeGreaterThan(0);
+  });
+
   test("blocks mode falls back to polling when listing is unavailable", async () => {
     const { chain, addresses, store, source } = await setup(3, 5);
     const indexer = new Indexer({ store, source, detect: "blocks" });

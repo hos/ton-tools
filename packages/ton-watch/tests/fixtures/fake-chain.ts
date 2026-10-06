@@ -110,7 +110,7 @@ export class FakeChain {
   }
 
   txs(address: string) {
-    return this.accounts.get(address) ?? [];
+    return this.accounts.get(address.toLowerCase()) ?? [];
   }
 }
 
@@ -129,6 +129,8 @@ export interface Faults {
   archiveFloorLt?: bigint;
   /** getTouchedAccounts returns null (forces poll fallback). */
   noBlockListing?: boolean;
+  /** getTouchedAccounts silently omits these addresses (a listing that misses things). */
+  hideFromListing?: Set<string>;
   /** findTxNear finds nothing. */
   noFindTxNear?: boolean;
 }
@@ -209,6 +211,7 @@ export class FakeSource implements TxSource {
     for (const b of this.chain.blocks) {
       if (b.seqno <= prev.seqno || b.seqno > next.seqno) continue;
       for (const t of b.txs) {
+        if (this.faults.hideFromListing?.has(t.address)) continue;
         const k = touched.get(t.address);
         if (!k || t.lt > k.lt) touched.set(t.address, { lt: t.lt, hash: t.hash });
       }

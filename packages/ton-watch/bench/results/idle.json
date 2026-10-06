@@ -1,0 +1,43 @@
+{
+  "current": {
+    "measuredAt": "2026-10-06T13:52:59.547Z",
+    "runs": [
+      {
+        "detect": "poll",
+        "addresses": 1000,
+        "minutes": 4.000008040966667,
+        "callsPerMinute": 4125.491706764676,
+        "callsPerMinuteByMethod": {
+          "getTip": 6.999985928336621,
+          "getAccountState": 3650.7426611249884,
+          "getTransactions": 490.4990139784446
+        },
+        "txIndexed": 4087,
+        "lagSecondsP50": 28,
+        "lagSecondsP99": 28
+      }
+    ],
+    "note": "blocks run from this session dropped: it hit an address-case bug (fixed); see blocks-after-case-fix"
+  },
+  "blocks-after-case-fix": {
+    "measuredAt": "2026-10-06T13:59:40.291Z",
+    "runs": [
+      {
+        "detect": "blocks",
+        "addresses": 1000,
+        "minutes": 4.00001265,
+        "callsPerMinute": 1228.9961132997917,
+        "callsPerMinuteByMethod": {
+          "getTip": 41.24986954728755,
+          "getAccountState": 0,
+          "getTransactions": 903.2471434809087,
+          "lookupBlock": 110.49965054485514,
+          "listBlockTransactions": 173.9994497267402
+        },
+        "txIndexed": 4035,
+        "lagSecondsP50": 0,
+        "lagSecondsP99": 2
+      }
+    ]
+  }
+}
