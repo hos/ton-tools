@@ -57,6 +57,8 @@ interface V2Transaction {
  * but up to 1000 per page and with full history. Pages are raw transaction BOCs,
  * re-hashed and link-checked by the indexer exactly like liteserver pages, so a
  * wrong answer is rejected, not stored.
+ *
+ * @experimental Not tested against paid-plan rate limits; see the module docs.
  */
 export class ToncenterHistory implements HistorySource {
   readonly name = "toncenter";

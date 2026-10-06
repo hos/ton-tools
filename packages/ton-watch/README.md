@@ -168,10 +168,16 @@ Measured 2026-10-06 (full table in [`bench/RESULTS.md`](bench/RESULTS.md)): 11 o
 **For more than ~a month of history** (including recovery from an outage longer
 than that), configure an archival liteserver or plug in toncenter (below).
 
-## Optional: toncenter history plug-in
+## Optional: toncenter history plug-in (experimental)
 
 A separate import that the core never loads on its own. Leave it out and nothing
 changes.
+
+> **Experimental.** Tested without paying: unit tests replay a recorded toncenter
+> response, and `LIVE=1 bun test tests/live.test.ts` checks it against liteservers
+> on mainnet using the free tier (no key, 1 request/s). Paid-plan rate limits and
+> long runs at volume are **not** tested. The safety net still applies: every page
+> is re-hashed and chain-checked, so a wrong answer is refetched, never stored.
 
 ```ts
 import { ToncenterHistory } from "ton-watch/toncenter";

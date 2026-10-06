@@ -28,7 +28,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
     logger,
   });
   const history = config.history ? await toncenterHistory(config.history) : undefined;
-  if (history) logger.info(`history plug-in: toncenter (${history.mode})`);
+  if (history) logger.info(`history plug-in: toncenter (${history.mode}, experimental)`);
 
   const watch = new TonWatch({
     history,
