@@ -663,6 +663,13 @@ export interface IndexingOptions {
      * many addresses they multiply the series a Prometheus server has to keep.
      */
     addressMetrics?: boolean;
+    /**
+     * Grace period of `stop()` / `close()`: how long fetches already in flight may
+     * still finish (and their pages be stored) once no new work starts. What is
+     * still in flight afterwards is abandoned — its source calls are aborted and it
+     * is refetched as a gap after the next start. Default 5000ms; 0 abandons at once.
+     */
+    stopTimeoutMs?: number;
 }
 /**
  * Options of a standalone `Indexer` (`@ton/watch/advanced`).
@@ -687,10 +694,14 @@ export interface IndexerSettings {
     retryMaxMs: number;
     archiveRetryMs: number;
     addressMetrics: boolean;
+    stopTimeoutMs: number;
 }
 export declare const DEFAULT_SETTINGS: IndexerSettings;
 export declare const DEFAULT_SPLIT: Required<SplitOptions>;
-/** Tuning values with defaults applied. Throws on a `concurrency` that would start no work. */
+/**
+ * Tuning values with defaults applied. Throws `INVALID_OPTION` on a `concurrency`
+ * that would start no work or a negative `stopTimeoutMs`.
+ */
 export declare function resolveSettings(options: IndexingOptions): IndexerSettings;
 /** Split settings, or null when splitting is off or the source cannot find split points. */
 export declare function resolveSplit(options: IndexerOptions<unknown>): Required<SplitOptions> | null;
@@ -1046,8 +1057,25 @@ export type GaugeName = {
 /** `value` if it is in `allowed`, else `"other"`: keeps a label's values a closed set. */
 export declare function closedLabel<T extends string>(allowed: readonly T[], value: string): T;
 
+// ---- source/call-options.d.ts
+/**
+ * Per-call options every `TxSource` and `HistorySource` method accepts.
+ *
+ * @experimental Exported from `@ton/watch/advanced`, with `TxSource`.
+ */
+export interface SourceCallOptions {
+    /**
+     * Abandons the call: once aborted, it makes no further attempt (no retry, no
+     * other server, no further sub-request) and rejects promptly with
+     * `signal.reason`, whether or not a request is still on the wire. The indexer
+     * aborts it when a stop's grace period (`stopTimeoutMs`) is over.
+     */
+    signal?: AbortSignal;
+}
+
 // ---- source/history.d.ts
 import type { TxId, TxRecord } from "../core/types";
+import type { SourceCallOptions } from "./call-options";
 /**
  * Optional plug-in that serves account history with bigger pages and deeper
  * retention than liteservers (e.g. `@ton/watch/toncenter`). The indexer only ever
@@ -1063,7 +1091,8 @@ export interface HistorySource {
     readonly name: string;
     /** Largest page it serves (toncenter: up to 1000). */
     readonly maxPageSize: number;
-    getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]>;
+    /** Like `TxSource.getTransactions`; should honor `options.signal` the same way. */
+    getTransactions(address: string, from: TxId, count: number, options?: SourceCallOptions): Promise<TxRecord[]>;
     /** True while it has no spare capacity (rate budget used up); `boost` mode then uses liteservers. */
     busy?(): boolean;
     close?(): Promise<void>;
@@ -1085,7 +1114,7 @@ import { type ServerDefinition } from "@ton/ls";
 import { LiteClient } from "ton-lite-client";
 import type { TxId, TxRecord } from "../../core/types";
 import { Metrics } from "../../metrics/metrics";
-import type { ChainTip, TxSource } from "../source";
+import type { ChainTip, FindTxNearOptions, SourceCallOptions, TxSource } from "../source";
 import { ServerPool, type ServerPoolOptions, type ServerStats } from "./server-pool";
 export interface LiteSourceOptions extends ServerPoolOptions {
     /** Regular liteservers. Default: mainnet public config. */
@@ -1119,13 +1148,11 @@ export declare class LiteSource implements TxSource {
     static connect(options?: LiteSourceOptions): Promise<LiteSource>;
     /** Load, latency and errors of every liteserver, for status pages. */
     stats(): ServerStats[];
-    getTip(): Promise<ChainTip>;
-    getLastTx(address: string, tip: ChainTip): Promise<TxId | null>;
-    getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]>;
-    getTouchedAccounts(prev: ChainTip, next: ChainTip, workchains: ReadonlySet<number>): Promise<Map<string, TxId> | null>;
-    findTxNear(address: string, lt: bigint, hint?: {
-        ltPerTx?: number;
-    }): Promise<TxId | null>;
+    getTip(options?: SourceCallOptions): Promise<ChainTip>;
+    getLastTx(address: string, tip: ChainTip, options?: SourceCallOptions): Promise<TxId | null>;
+    getTransactions(address: string, from: TxId, count: number, options?: SourceCallOptions): Promise<TxRecord[]>;
+    getTouchedAccounts(prev: ChainTip, next: ChainTip, workchains: ReadonlySet<number>, options?: SourceCallOptions): Promise<Map<string, TxId> | null>;
+    findTxNear(address: string, lt: bigint, options?: FindTxNearOptions): Promise<TxId | null>;
     close(): Promise<void>;
     /**
      * Makes a lagging server wait for the newest block we know about instead of
@@ -1220,8 +1247,11 @@ export declare class ServerPool<C> {
     /**
      * Runs `fn` against the best available server, moving to another one on failure
      * according to the error kind. Throws a `SourceError` once no server can serve it.
+     *
+     * Once `signal` aborts, it starts no further attempt, stops waiting for the one
+     * in flight and rejects with `signal.reason`.
      */
-    call<T>(method: string, fn: (client: C) => Promise<T>): Promise<T>;
+    call<T>(method: string, fn: (client: C) => Promise<T>, signal?: AbortSignal): Promise<T>;
     private coolDown;
     private exhaustedError;
     private withTimeout;
@@ -1233,12 +1263,14 @@ export declare class ServerPool<C> {
     private acquire;
     /** Connected regular servers not ruled out; archival ones only when none is left. */
     private candidates;
+    /** Waits for a freed slot or `maxWaitMs`; rejects (leaving no timer behind) on abort. */
     private waitForSlot;
 }
 
 // ---- source/source.d.ts
 import type { TxId, TxRecord } from "../core/types";
 import type { Metrics } from "../metrics/metrics";
+import type { SourceCallOptions } from "./call-options";
 /** Full identifier of a block. */
 export interface BlockRef {
     workchain: number;
@@ -1267,37 +1299,43 @@ export interface ChainTip {
      */
     syncLt: bigint;
 }
+export type { SourceCallOptions };
+/** Options of `TxSource.findTxNear`. */
+export interface FindTxNearOptions extends SourceCallOptions {
+    /** Average lt distance between the account's transactions, to budget the search. */
+    ltPerTx?: number;
+}
 /**
  * Where transactions come from. `LiteSource` is the liteserver implementation; tests
- * use a fake. Every method may throw a `SourceError`.
+ * use a fake. Every method may throw a `SourceError`, and takes an optional
+ * `SourceCallOptions` whose `signal` it should honor (a source that ignores it
+ * still works; a stopping indexer then just stops waiting for it).
  *
  * @experimental Custom implementations are unsupported in 0.x: methods may be
  * added in minor versions. Exported from `@ton/watch/advanced`.
  */
 export interface TxSource {
-    getTip(): Promise<ChainTip>;
+    getTip(options?: SourceCallOptions): Promise<ChainTip>;
     /** Last transaction of `address` as of `tip`, or null if it has none. */
-    getLastTx(address: string, tip: ChainTip): Promise<TxId | null>;
+    getLastTx(address: string, tip: ChainTip, options?: SourceCallOptions): Promise<TxId | null>;
     /**
      * Up to `count` transactions of `address`, newest first, starting at `from`
      * (inclusive) and walking back through prev links.
      */
-    getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]>;
+    getTransactions(address: string, from: TxId, count: number, options?: SourceCallOptions): Promise<TxRecord[]>;
     /**
      * Accounts that had transactions in blocks after `prev` up to `next`, with their
      * newest transaction. Returns null when it cannot tell (shard split/merge, too
      * far behind); the caller then falls back to polling every address.
      */
-    getTouchedAccounts?(prev: ChainTip, next: ChainTip, workchains: ReadonlySet<number>): Promise<Map<string, TxId> | null>;
+    getTouchedAccounts?(prev: ChainTip, next: ChainTip, workchains: ReadonlySet<number>, options?: SourceCallOptions): Promise<Map<string, TxId> | null>;
     /**
      * Optional: some transaction of `address` with lt at or below `lt`, close to it.
      * Lets the indexer cut one long missing range into pieces fetched in parallel
      * (a single range is otherwise a strictly sequential walk, one page per round
      * trip). Returns null when nothing is found cheaply.
      */
-    findTxNear?(address: string, lt: bigint, hint?: {
-        ltPerTx?: number;
-    }): Promise<TxId | null>;
+    findTxNear?(address: string, lt: bigint, options?: FindTxNearOptions): Promise<TxId | null>;
     /** Largest `count` that `getTransactions` honors. */
     readonly maxPageSize: number;
     /** When set, the indexer records into the same registry. */
@@ -1841,7 +1879,8 @@ export interface Health {
  * only when reading.
  *
  * Owns its `store` and `source`: `stop()` pauses and can be followed by
- * `start()`, `close()` stops for good and closes both.
+ * `start()`, `close()` stops for good and closes both. Both return promptly (see
+ * `stop()`), so they fit a container's shutdown grace period.
  *
  * Emits `tick`, `frontier`, `synced` and `fetchError` (see `TonWatchEventMap`).
  */
@@ -1865,14 +1904,29 @@ export declare class TonWatch<Db = unknown> extends EventEmitter<TonWatchEventMa
      */
     start(): Promise<void>;
     /**
-     * Graceful stop: consumers finish their current transaction, in-flight fetches
-     * complete. Store and source stay open; `start()` resumes.
+     * Prompt, graceful stop; store and source stay open and `start()` resumes.
+     *
+     * - Indexing starts nothing new and retries nothing from the moment it is
+     *   called. Fetches already in flight get `stopTimeoutMs` (default 5s) to
+     *   finish and have their pages stored; then they are abandoned (source calls
+     *   aborted). Abandoned ranges are refetched after the next start, so nothing
+     *   is lost and nothing half-done is ever delivered.
+     * - Consumers are never interrupted mid-transaction: a handler call in progress
+     *   runs to the end and its cursor is committed. There is no deadline on that
+     *   call — it is your code; give it its own timeouts.
+     *
+     * Both run in parallel. Always resolves, after about `stopTimeoutMs` at most,
+     * or the current handler call if that takes longer.
      */
     stop(): Promise<void>;
     /**
-     * `stop()`, then closes the source and the store. Final: afterwards `start()`,
-     * `init()` and `addAddress()` reject with code `CLOSED`. Calling it again
-     * returns the same promise.
+     * `stop()`, then closes the source (rejecting its pending requests) and the
+     * store. Final: afterwards `start()`, `init()` and `addAddress()` reject with
+     * code `CLOSED`. Calling it again returns the same promise.
+     *
+     * Takes as long as `stop()` plus closing the store. The source and the store
+     * are closed even if one of them fails to close; the promise then rejects with
+     * that error, after both were attempted. Use it on SIGTERM (the CLI does).
      */
     close(): Promise<void>;
     private assertOpen;

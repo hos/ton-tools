@@ -7,6 +7,7 @@ import { mapConcurrent, PendingTasks } from "../util/async";
 import type { Logger } from "../util/logger";
 import type { IndexerEmitter } from "./events";
 import type { IndexerSettings } from "./options";
+import type { Run } from "./run";
 import type { AddressTable, TrackedAddress } from "./tracked-address";
 import type { WalkScheduler } from "./walk-scheduler";
 
@@ -37,15 +38,19 @@ export class Maintenance {
 
   /**
    * Advances frontiers and schedules walks for uncovered gaps: for addresses that
-   * changed, and for all of them every `gapScanMs` (or when `all` is set).
+   * changed, and for all of them every `gapScanMs` (or when `all` is set). Once a
+   * stop of `run` is requested, addresses not yet scanned are left for later.
    */
-  async scanGaps(all = false): Promise<void> {
+  async scanGaps(all = false, run?: Run): Promise<void> {
     const { addresses, settings } = this.deps;
     const now = Date.now();
     const full = all || now - this.lastFullScanAt >= settings.gapScanMs;
-    if (full) this.lastFullScanAt = now;
     const targets = addresses.all().filter((tracked) => full || tracked.needsMaintenance);
-    await mapConcurrent(targets, settings.concurrency, (tracked) => this.scanAddress(tracked));
+    await mapConcurrent(targets, settings.concurrency, async (tracked) => {
+      if (!run?.stopRequested) await this.scanAddress(tracked);
+    });
+    // An interrupted full scan is redone after the next start.
+    if (full && !run?.stopRequested) this.lastFullScanAt = now;
   }
 
   /** Records `syncLt` for every address whose stored chain reaches its on-chain last tx. */

@@ -1,5 +1,6 @@
 import { classifyError, type ErrorKind, errorMessage, SourceError } from "../../core/errors";
 import { Metrics } from "../../metrics/metrics";
+import { abortable, sleep } from "../../util/async";
 import { exponentialBackoff, withJitter } from "../../util/backoff";
 import { type Logger, silentLogger } from "../../util/logger";
 import { assertPositiveInteger, invalidOption } from "../../util/validate";
@@ -136,27 +137,33 @@ export class ServerPool<C> {
   /**
    * Runs `fn` against the best available server, moving to another one on failure
    * according to the error kind. Throws a `SourceError` once no server can serve it.
+   *
+   * Once `signal` aborts, it starts no further attempt, stops waiting for the one
+   * in flight and rejects with `signal.reason`.
    */
-  async call<T>(method: string, fn: (client: C) => Promise<T>): Promise<T> {
+  async call<T>(method: string, fn: (client: C) => Promise<T>, signal?: AbortSignal): Promise<T> {
     const ruledOut = new Set<ServerState<C>>();
     let attempts = 0;
     let lastError: unknown;
 
     for (;;) {
-      const server = await this.acquire(ruledOut);
+      signal?.throwIfAborted();
+      const server = await this.acquire(ruledOut, signal);
       if (!server) throw this.exhaustedError(method, lastError);
 
       const startedAt = Date.now();
       this.metrics.call(method);
       server.calls++;
       try {
-        const result = await this.withTimeout(fn(server.client), method);
+        const result = await abortable(this.withTimeout(fn(server.client), method), signal);
         server.latencyMs =
           server.latencyMs * (1 - LATENCY_SMOOTHING) + (Date.now() - startedAt) * LATENCY_SMOOTHING;
         server.rateLimits = 0;
         server.failures = 0;
         return result;
       } catch (error) {
+        // Abandoned, not failed: no error is counted against the server.
+        if (signal?.aborted) throw signal.reason;
         lastError = error;
         const kind = classifyError(error);
         server.errors[kind] = (server.errors[kind] ?? 0) + 1;
@@ -225,7 +232,10 @@ export class ServerPool<C> {
    * Picks the best available server, waiting while all candidates are busy or
    * cooling down. Returns null when every server has been ruled out for this call.
    */
-  private async acquire(ruledOut: Set<ServerState<C>>): Promise<ServerState<C> | null> {
+  private async acquire(
+    ruledOut: Set<ServerState<C>>,
+    signal: AbortSignal | undefined,
+  ): Promise<ServerState<C> | null> {
     const deadline = Date.now() + this.timeoutMs;
     for (;;) {
       const candidates = this.candidates(ruledOut);
@@ -233,7 +243,7 @@ export class ServerPool<C> {
         if (Date.now() > deadline || this.members.every((member) => ruledOut.has(member))) {
           return null;
         }
-        await new Promise((resolve) => setTimeout(resolve, NO_SERVER_POLL_MS));
+        await sleep(NO_SERVER_POLL_MS, signal);
         continue;
       }
 
@@ -262,7 +272,7 @@ export class ServerPool<C> {
         soonestCooldownEnd === Number.POSITIVE_INFINITY
           ? BUSY_WAIT_MS
           : Math.max(MIN_COOLDOWN_WAIT_MS, soonestCooldownEnd - now);
-      await this.waitForSlot(wait);
+      await this.waitForSlot(wait, signal);
     }
   }
 
@@ -276,13 +286,26 @@ export class ServerPool<C> {
     return primaries.length > 0 ? primaries : usable(true);
   }
 
-  private waitForSlot(maxWaitMs: number): Promise<void> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(resolve, maxWaitMs);
-      this.slotWaiters.push(() => {
+  /** Waits for a freed slot or `maxWaitMs`; rejects (leaving no timer behind) on abort. */
+  private waitForSlot(maxWaitMs: number, signal: AbortSignal | undefined): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) return reject(signal.reason);
+      const cleanUp = () => {
         clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        this.slotWaiters = this.slotWaiters.filter((waiter) => waiter !== wake);
+      };
+      const wake = () => {
+        cleanUp();
         resolve();
-      });
+      };
+      const onAbort = () => {
+        cleanUp();
+        reject(signal?.reason);
+      };
+      const timer = setTimeout(wake, maxWaitMs);
+      this.slotWaiters.push(wake);
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 }

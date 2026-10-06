@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { TxId } from "../../src/core/types";
 import type { SplitOptions } from "../../src/indexer/options";
+import { Run } from "../../src/indexer/run";
 import type { Walk } from "../../src/indexer/walk";
 import { WalkScheduler } from "../../src/indexer/walk-scheduler";
 import { WalkSplitter } from "../../src/indexer/walk-splitter";
@@ -22,6 +23,7 @@ function setup(
   settings: Partial<SplitOptions> = {},
 ) {
   const metrics = new Metrics();
+  const run = new Run();
   const scheduler = new WalkScheduler(0, async () => {}, metrics); // holds walks only
   const asked: { lt: bigint; hint: unknown }[] = [];
   const source = {
@@ -36,6 +38,7 @@ function setup(
     scheduler,
     metrics,
     silentLogger,
+    () => run,
   );
   const walk = scheduler.add({
     address: A,
@@ -46,7 +49,7 @@ function setup(
   });
   walk.pages = 3;
   walk.fetched = 100;
-  return { metrics, scheduler, splitter, walk, asked };
+  return { metrics, scheduler, splitter, walk, asked, run };
 }
 
 /** Every walk's (floorLt, cursor] span, sorted: must tile (0, 9_000] exactly. */
@@ -66,7 +69,7 @@ describe("WalkSplitter.maybeSplit", () => {
     expect(s.walk.split).toBe(true);
     // 900 remaining / 300 per piece = 3 parts: 2 split points at 1/3 and 2/3.
     expect(s.asked.map((a) => a.lt)).toEqual([3_000n, 6_000n]);
-    expect(s.asked[0]!.hint).toEqual({ ltPerTx: 10 });
+    expect(s.asked[0]!.hint).toEqual({ ltPerTx: 10, signal: s.run.signal });
     await flush();
     const walks = s.scheduler.all();
     expect(walks.length).toBe(3);

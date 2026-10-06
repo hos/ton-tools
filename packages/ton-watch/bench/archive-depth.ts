@@ -7,9 +7,8 @@
  *   bun run bench/archive-depth.ts [--address <addr>]
  */
 import { Address } from "@ton/core";
-import { getServers } from "@ton/ls";
+import { getServers, LiteConnection } from "@ton/ls";
 import { LiteClient } from "ton-lite-client";
-import { LiteConnection } from "../src/source/liteserver/lite-engine";
 
 import { arg, saveResult, toncenter } from "./lib";
 

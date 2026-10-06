@@ -3,7 +3,9 @@ import { Address, Cell } from "@ton/core";
 import { errorMessage, SourceError } from "../../core/errors";
 import { recordFromCell } from "../../core/transaction";
 import type { TxId, TxRecord } from "../../core/types";
+import type { SourceCallOptions } from "../../source/call-options";
 import type { HistorySource } from "../../source/history";
+import { sleep } from "../../util/async";
 import { exponentialBackoff } from "../../util/backoff";
 
 export interface ToncenterHistoryOptions {
@@ -88,7 +90,12 @@ export class ToncenterHistory implements HistorySource {
     return this.nextSlotAt - Date.now() > this.intervalMs;
   }
 
-  async getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]> {
+  async getTransactions(
+    address: string,
+    from: TxId,
+    count: number,
+    options: SourceCallOptions = {},
+  ): Promise<TxRecord[]> {
     const rawAddress = Address.parse(address).toRawString();
     const params = new URLSearchParams({
       address: rawAddress,
@@ -97,7 +104,7 @@ export class ToncenterHistory implements HistorySource {
       limit: String(Math.min(count, this.maxPageSize)),
       archival: "true",
     });
-    const { result } = await this.request(`/getTransactions?${params}`);
+    const { result } = await this.request(`/getTransactions?${params}`, options.signal);
     if (!Array.isArray(result)) {
       throw new SourceError("bad_response", "toncenter: result is not a list");
     }
@@ -110,21 +117,22 @@ export class ToncenterHistory implements HistorySource {
   }
 
   /** Waits for the next request slot under the rate limit. */
-  private async takeSlot(): Promise<void> {
+  private async takeSlot(signal: AbortSignal | undefined): Promise<void> {
     const now = Date.now();
     const at = Math.max(now, this.nextSlotAt);
     this.nextSlotAt = at + this.intervalMs;
-    if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+    if (at > now) await sleep(at - now, signal);
   }
 
   /** GET with rate limiting; retries rate limits, 5xx and network errors. */
-  private async request(path: string): Promise<V2Response> {
+  private async request(path: string, signal: AbortSignal | undefined): Promise<V2Response> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= this.retries; attempt++) {
-      await this.takeSlot();
+      await this.takeSlot(signal);
       try {
-        return await this.fetchOnce(path);
+        return await this.fetchOnce(path, signal);
       } catch (error) {
+        if (signal?.aborted) throw signal.reason;
         const retryable =
           !(error instanceof SourceError) ||
           error.kind === "rate_limit" ||
@@ -142,10 +150,11 @@ export class ToncenterHistory implements HistorySource {
   }
 
   /** One HTTP round trip; throws a classified `SourceError` for any non-ok answer. */
-  private async fetchOnce(path: string): Promise<V2Response> {
+  private async fetchOnce(path: string, signal: AbortSignal | undefined): Promise<V2Response> {
+    const timeout = AbortSignal.timeout(this.timeoutMs);
     const response = await this.fetchImpl(`${this.endpoint}${path}`, {
       headers: this.apiKey ? { "X-API-Key": this.apiKey } : {},
-      signal: AbortSignal.timeout(this.timeoutMs),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
     const text = await response.text();
     let body: V2Response;

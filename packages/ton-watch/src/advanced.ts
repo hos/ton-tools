@@ -20,7 +20,7 @@ export type { IndexerEventMap } from "./indexer/events";
 export { Indexer } from "./indexer/indexer";
 export type { IndexerOptions } from "./indexer/options";
 export type { HistorySource } from "./source/history";
-export type { TxSource } from "./source/source";
+export type { FindTxNearOptions, SourceCallOptions, TxSource } from "./source/source";
 export type { Backlog, ConsumerLock, ConsumerStateStore } from "./stores/consumer-state";
 export type { PgSession } from "./stores/pg/database";
 export type {

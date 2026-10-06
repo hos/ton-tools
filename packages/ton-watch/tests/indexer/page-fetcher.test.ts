@@ -46,7 +46,7 @@ describe("PageFetcher without a history plug-in", () => {
         .reverse()
         .map((tx) => tx.lt),
     );
-    expect(spy).toHaveBeenCalledWith(A, s.walk(40).cursor, 16);
+    expect(spy).toHaveBeenCalledWith(A, s.walk(40).cursor, 16, { signal: undefined });
   });
 
   test("rejects a page with a broken link as bad_response", async () => {
@@ -86,7 +86,7 @@ describe("PageFetcher fallback mode", () => {
     const page = await s.fetcher.fetch(s.walk(40));
     expect(page.length).toBe(30);
     expect(page[0]!.lt).toBe(s.txs[40]!.lt);
-    expect(spy).toHaveBeenCalledWith(A, s.walk(40).cursor, 30);
+    expect(spy).toHaveBeenCalledWith(A, s.walk(40).cursor, 30, { signal: undefined });
     expect(s.historyPages("fallback")).toBe(1);
     expect(s.historyPages("boost")).toBe(0);
   });

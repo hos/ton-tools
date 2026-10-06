@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Address } from "@ton/core";
-import type { LsConfig } from "@ton/ls";
+import { LiteConnection, type LsConfig } from "@ton/ls";
 import type { LiteClient } from "ton-lite-client";
 import type {
   liteServer_blockHeader,
@@ -14,7 +14,6 @@ import { Functions } from "ton-lite-client/dist/schema.js";
 import { SourceError } from "../../src/core/errors";
 import type { TxId } from "../../src/core/types";
 import { Metrics } from "../../src/metrics/metrics";
-import { LiteConnection } from "../../src/source/liteserver/lite-engine";
 import {
   LiteSource,
   type LiteSourceOptions,

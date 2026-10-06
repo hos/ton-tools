@@ -1,5 +1,5 @@
 import { Address, Cell } from "@ton/core";
-import { getServers, type LsConfig, type ServerDefinition } from "@ton/ls";
+import { getServers, LiteConnection, type LsConfig, type ServerDefinition } from "@ton/ls";
 import { LiteClient } from "ton-lite-client";
 import type {
   liteServer_accountState,
@@ -17,9 +17,15 @@ import type { TxId, TxRecord } from "../../core/types";
 import { Metrics } from "../../metrics/metrics";
 import { sleep } from "../../util/async";
 import { silentLogger } from "../../util/logger";
-import type { BlockRef, ChainTip, ShardTop, TxSource } from "../source";
+import type {
+  BlockRef,
+  ChainTip,
+  FindTxNearOptions,
+  ShardTop,
+  SourceCallOptions,
+  TxSource,
+} from "../source";
 import { lastTxFromStateProof } from "./account-proof";
-import { LiteConnection } from "./lite-engine";
 import {
   type PoolMember,
   ServerPool,
@@ -157,22 +163,26 @@ export class LiteSource implements TxSource {
     return this.pool.stats();
   }
 
-  async getTip(): Promise<ChainTip> {
-    const tip = await this.pool.call("getTip", async (client) => {
-      const info = await client.getMasterchainInfoExt();
-      const shardsInfo = (await client.engine.query(Functions.liteServer_getAllShardsInfo, {
-        kind: "liteServer.getAllShardsInfo",
-        id: info.last,
-      })) as liteServer_allShardsInfo;
-      const shards = parseShardTops(shardsInfo.data);
-      return {
-        seqno: info.last.seqno,
-        utime: info.lastUtime,
-        block: toBlockRef(info.last),
-        shards,
-        syncLt: syncLtOf(shards),
-      } satisfies ChainTip;
-    });
+  async getTip(options: SourceCallOptions = {}): Promise<ChainTip> {
+    const tip = await this.pool.call(
+      "getTip",
+      async (client) => {
+        const info = await client.getMasterchainInfoExt();
+        const shardsInfo = (await client.engine.query(Functions.liteServer_getAllShardsInfo, {
+          kind: "liteServer.getAllShardsInfo",
+          id: info.last,
+        })) as liteServer_allShardsInfo;
+        const shards = parseShardTops(shardsInfo.data);
+        return {
+          seqno: info.last.seqno,
+          utime: info.lastUtime,
+          block: toBlockRef(info.last),
+          shards,
+          syncLt: syncLtOf(shards),
+        } satisfies ChainTip;
+      },
+      options.signal,
+    );
     // A lagging server must not move the tip backwards.
     if (this.lastTip && tip.seqno < this.lastTip.seqno) return this.lastTip;
     this.lastTip = tip;
@@ -180,54 +190,77 @@ export class LiteSource implements TxSource {
     return tip;
   }
 
-  async getLastTx(address: string, tip: ChainTip): Promise<TxId | null> {
+  async getLastTx(
+    address: string,
+    tip: ChainTip,
+    options: SourceCallOptions = {},
+  ): Promise<TxId | null> {
     const account = Address.parse(address);
-    return this.pool.call("getAccountState", async (client) => {
-      const state = (await client.engine.query(
-        Functions.liteServer_getAccountState,
-        {
-          kind: "liteServer.getAccountState",
-          id: toBlockIdExt(tip.block),
-          account: { kind: "liteServer.accountId", workchain: account.workChain, id: account.hash },
-        },
-        this.awaitSeqno(tip.seqno),
-      )) as liteServer_accountState;
-      return lastTxFromStateProof(state.proof, account.hash);
-    });
+    return this.pool.call(
+      "getAccountState",
+      async (client) => {
+        const state = (await client.engine.query(
+          Functions.liteServer_getAccountState,
+          {
+            kind: "liteServer.getAccountState",
+            id: toBlockIdExt(tip.block),
+            account: {
+              kind: "liteServer.accountId",
+              workchain: account.workChain,
+              id: account.hash,
+            },
+          },
+          this.awaitSeqno(tip.seqno),
+        )) as liteServer_accountState;
+        return lastTxFromStateProof(state.proof, account.hash);
+      },
+      options.signal,
+    );
   }
 
-  async getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]> {
+  async getTransactions(
+    address: string,
+    from: TxId,
+    count: number,
+    options: SourceCallOptions = {},
+  ): Promise<TxRecord[]> {
     const account = Address.parse(address);
     const rawAddress = account.toRawString();
-    return this.pool.call("getTransactions", async (client) => {
-      const response = await client.getAccountTransactions(
-        account,
-        from.lt.toString(),
-        from.hash,
-        Math.min(count, this.maxPageSize),
-        this.awaitSeqno(),
-      );
-      const page = Cell.fromBoc(response.transactions).map((cell) =>
-        recordFromCell(cell, rawAddress),
-      );
-      validatePage(from, page);
-      return page;
-    });
+    return this.pool.call(
+      "getTransactions",
+      async (client) => {
+        const response = await client.getAccountTransactions(
+          account,
+          from.lt.toString(),
+          from.hash,
+          Math.min(count, this.maxPageSize),
+          this.awaitSeqno(),
+        );
+        const page = Cell.fromBoc(response.transactions).map((cell) =>
+          recordFromCell(cell, rawAddress),
+        );
+        validatePage(from, page);
+        return page;
+      },
+      options.signal,
+    );
   }
 
   async getTouchedAccounts(
     prev: ChainTip,
     next: ChainTip,
     workchains: ReadonlySet<number>,
+    options: SourceCallOptions = {},
   ): Promise<Map<string, TxId> | null> {
+    const { signal } = options;
     const blocks = this.blocksBetween(prev, next, workchains);
     if (!blocks) return null;
 
     const touched = new Map<string, TxId>();
     await Promise.all(
       blocks.map(async (block) => {
-        const ref = "rootHash" in block ? block : await this.lookupBlock(block);
-        for await (const id of this.listBlockTransactions(ref, next.seqno)) {
+        const ref = "rootHash" in block ? block : await this.lookupBlock(block, signal);
+        for await (const id of this.listBlockTransactions(ref, next.seqno, signal)) {
           const address = `${ref.workchain}:${id.account.toString("hex")}`;
           const lt = BigInt(id.lt);
           const known = touched.get(address);
@@ -241,10 +274,11 @@ export class LiteSource implements TxSource {
   async findTxNear(
     address: string,
     lt: bigint,
-    hint: { ltPerTx?: number } = {},
+    options: FindTxNearOptions = {},
   ): Promise<TxId | null> {
+    const { signal, ltPerTx } = options;
     const account = Address.parse(address);
-    const tip = this.lastTip ?? (await this.getTip());
+    const tip = this.lastTip ?? (await this.getTip({ signal }));
     const top = tip.shards.find(
       (shard) => shard.workchain === account.workChain && shardContains(shard.shard, account.hash),
     );
@@ -252,8 +286,8 @@ export class LiteSource implements TxSource {
 
     // Budget the search by how often the account shows up in blocks.
     let maxBlocks = this.maxProbeBlocks;
-    if (hint.ltPerTx) {
-      const expected = Math.ceil((PROBE_SPAN_TXS * hint.ltPerTx) / this.ltPerShardBlock(top));
+    if (ltPerTx) {
+      const expected = Math.ceil((PROBE_SPAN_TXS * ltPerTx) / this.ltPerShardBlock(top));
       if (expected > this.maxProbeBlocks) return null;
       maxBlocks = Math.max(PROBE_BATCH_BLOCKS, expected);
     }
@@ -261,14 +295,16 @@ export class LiteSource implements TxSource {
     // The shard block holding `lt`, then earlier blocks in batches until one has a
     // transaction of the account.
     let seqno = (
-      await this.pool.call("lookupBlock", (client) =>
-        client.lookupBlockByLt({ workchain: top.workchain, shard: top.shard, lt }),
+      await this.pool.call(
+        "lookupBlock",
+        (client) => client.lookupBlockByLt({ workchain: top.workchain, shard: top.shard, lt }),
+        signal,
       )
     ).id.seqno;
     for (let round = 0; round < maxBlocks / PROBE_BATCH_BLOCKS; round++) {
       const seqnos = Array.from({ length: PROBE_BATCH_BLOCKS }, (_, i) => seqno - i);
       const found = await Promise.all(
-        seqnos.map((s) => this.lastTxOfAccountInBlock(top, s, account.hash)),
+        seqnos.map((s) => this.lastTxOfAccountInBlock(top, s, account.hash, signal)),
       );
       const hit = found.find((txId) => txId !== null);
       if (hit) return hit;
@@ -336,13 +372,16 @@ export class LiteSource implements TxSource {
     return blocks.length > this.maxBlocksPerTick ? null : blocks;
   }
 
-  private async lookupBlock(block: BlockSeqnoRef): Promise<BlockRef> {
-    const { id } = await this.pool.call("lookupBlock", (client) =>
-      client.lookupBlockByID({
-        workchain: block.workchain,
-        shard: block.shard,
-        seqno: block.seqno,
-      }),
+  private async lookupBlock(block: BlockSeqnoRef, signal?: AbortSignal): Promise<BlockRef> {
+    const { id } = await this.pool.call(
+      "lookupBlock",
+      (client) =>
+        client.lookupBlockByID({
+          workchain: block.workchain,
+          shard: block.shard,
+          seqno: block.seqno,
+        }),
+      signal,
     );
     return toBlockRef(id);
   }
@@ -351,6 +390,7 @@ export class LiteSource implements TxSource {
   private async *listBlockTransactions(
     block: BlockRef,
     awaitSeqno: number,
+    signal?: AbortSignal,
   ): AsyncGenerator<{ account: Buffer; lt: string; hash: Buffer }> {
     let after: liteServer_transactionId3 | null = null;
     for (;;) {
@@ -367,6 +407,7 @@ export class LiteSource implements TxSource {
             },
             this.awaitSeqno(awaitSeqno),
           ),
+        signal,
       );
       for (const id of response.ids) {
         if (!id.account || !id.lt || !id.hash) continue;
@@ -383,9 +424,12 @@ export class LiteSource implements TxSource {
     shard: ShardTop,
     seqno: number,
     accountId: Buffer,
+    signal?: AbortSignal,
   ): Promise<TxId | null> {
-    const { id } = await this.pool.call("lookupBlock", (client) =>
-      client.lookupBlockByID({ workchain: shard.workchain, shard: shard.shard, seqno }),
+    const { id } = await this.pool.call(
+      "lookupBlock",
+      (client) => client.lookupBlockByID({ workchain: shard.workchain, shard: shard.shard, seqno }),
+      signal,
     );
     // Start the listing at the account itself: ids are sorted by account.
     const after: liteServer_transactionId3 = {
@@ -393,12 +437,15 @@ export class LiteSource implements TxSource {
       account: accountId,
       lt: "0",
     };
-    const response = await this.pool.call("listBlockTransactions", (client) =>
-      client.listBlockTransactions(id, {
-        mode: LIST_IDS | ListMode.after,
-        count: PROBE_LIST_PAGE_SIZE,
-        after,
-      }),
+    const response = await this.pool.call(
+      "listBlockTransactions",
+      (client) =>
+        client.listBlockTransactions(id, {
+          mode: LIST_IDS | ListMode.after,
+          count: PROBE_LIST_PAGE_SIZE,
+          after,
+        }),
+      signal,
     );
     const own = response.ids.filter((tx) => tx.account?.equals(accountId) && tx.lt && tx.hash);
     const last = own.at(-1);

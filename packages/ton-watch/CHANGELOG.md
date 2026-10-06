@@ -8,7 +8,8 @@ may break and a patch release never does).
 ## [0.1.0] - Unreleased
 
 First release, published on JSR as [`@ton/watch`](https://jsr.io/@ton/watch)
-(Bun only; not on npm).
+(Bun only; not on npm). Requires [`@ton/ls`](https://jsr.io/@ton/ls) 0.0.4, which
+must be published first (it provides `LiteConnection`).
 
 ### Added
 
@@ -34,6 +35,13 @@ First release, published on JSR as [`@ton/watch`](https://jsr.io/@ton/watch)
   `ConsumerLockedError`, `CursorConflictError`, `MigrationError`, `SourceError`.
 - `health({ maxLagSeconds })`, `status()`, `watermark()`; `stop()` (pause) vs
   `close()` (final, closes store and source).
+- Prompt `stop()`/`close()`: nothing new starts and nothing is retried once
+  stopping; requests in flight get `stopTimeoutMs` (default 5s, `0` abandons at
+  once), then are abandoned through an `AbortSignal` and refetched after the next
+  start as gaps. Both always resolve; a consumer handler in progress is never
+  interrupted and is waited for. `close()` rejects only if closing the source or
+  store fails. `TxSource` and `HistorySource` methods take an optional
+  `{ signal }` (`SourceCallOptions`; `findTxNear` takes `FindTxNearOptions`).
 - `@ton/watch/parse`: transaction decoding — outcome and bounce flags, comments,
   TEP-74 jettons, TEP-62 NFTs, `incomingPayment` and `incomingJettonTransfer`.
 - `@ton/watch/webhook`: receiver side of the service webhooks — `verifySignature`

@@ -93,6 +93,7 @@ export declare function watermarkOf(states: readonly AddressState[]): bigint | n
 
 // ---- plugins/toncenter/toncenter-history.d.ts
 import type { TxId, TxRecord } from "../../core/types";
+import type { SourceCallOptions } from "../../source/call-options";
 import type { HistorySource } from "../../source/history";
 export interface ToncenterHistoryOptions {
     /** API key; without one toncenter allows 1 request/s. */
@@ -133,7 +134,7 @@ export declare class ToncenterHistory implements HistorySource {
     constructor(options?: ToncenterHistoryOptions);
     /** Busy when the next request slot is more than one interval away. */
     busy(): boolean;
-    getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]>;
+    getTransactions(address: string, from: TxId, count: number, options?: SourceCallOptions): Promise<TxRecord[]>;
     /** Waits for the next request slot under the rate limit. */
     private takeSlot;
     /** GET with rate limiting; retries rate limits, 5xx and network errors. */
@@ -142,8 +143,25 @@ export declare class ToncenterHistory implements HistorySource {
     private fetchOnce;
 }
 
+// ---- source/call-options.d.ts
+/**
+ * Per-call options every `TxSource` and `HistorySource` method accepts.
+ *
+ * @experimental Exported from `@ton/watch/advanced`, with `TxSource`.
+ */
+export interface SourceCallOptions {
+    /**
+     * Abandons the call: once aborted, it makes no further attempt (no retry, no
+     * other server, no further sub-request) and rejects promptly with
+     * `signal.reason`, whether or not a request is still on the wire. The indexer
+     * aborts it when a stop's grace period (`stopTimeoutMs`) is over.
+     */
+    signal?: AbortSignal;
+}
+
 // ---- source/history.d.ts
 import type { TxId, TxRecord } from "../core/types";
+import type { SourceCallOptions } from "./call-options";
 /**
  * Optional plug-in that serves account history with bigger pages and deeper
  * retention than liteservers (e.g. `@ton/watch/toncenter`). The indexer only ever
@@ -159,7 +177,8 @@ export interface HistorySource {
     readonly name: string;
     /** Largest page it serves (toncenter: up to 1000). */
     readonly maxPageSize: number;
-    getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]>;
+    /** Like `TxSource.getTransactions`; should honor `options.signal` the same way. */
+    getTransactions(address: string, from: TxId, count: number, options?: SourceCallOptions): Promise<TxRecord[]>;
     /** True while it has no spare capacity (rate budget used up); `boost` mode then uses liteservers. */
     busy?(): boolean;
     close?(): Promise<void>;

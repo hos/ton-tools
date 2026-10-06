@@ -89,7 +89,8 @@ const STALE_TICK_SECONDS = 60;
  * only when reading.
  *
  * Owns its `store` and `source`: `stop()` pauses and can be followed by
- * `start()`, `close()` stops for good and closes both.
+ * `start()`, `close()` stops for good and closes both. Both return promptly (see
+ * `stop()`), so they fit a container's shutdown grace period.
  *
  * Emits `tick`, `frontier`, `synced` and `fetchError` (see `TonWatchEventMap`).
  */
@@ -149,25 +150,46 @@ export class TonWatch<Db = unknown> extends EventEmitter<TonWatchEventMap> {
   }
 
   /**
-   * Graceful stop: consumers finish their current transaction, in-flight fetches
-   * complete. Store and source stay open; `start()` resumes.
+   * Prompt, graceful stop; store and source stay open and `start()` resumes.
+   *
+   * - Indexing starts nothing new and retries nothing from the moment it is
+   *   called. Fetches already in flight get `stopTimeoutMs` (default 5s) to
+   *   finish and have their pages stored; then they are abandoned (source calls
+   *   aborted). Abandoned ranges are refetched after the next start, so nothing
+   *   is lost and nothing half-done is ever delivered.
+   * - Consumers are never interrupted mid-transaction: a handler call in progress
+   *   runs to the end and its cursor is committed. There is no deadline on that
+   *   call — it is your code; give it its own timeouts.
+   *
+   * Both run in parallel. Always resolves, after about `stopTimeoutMs` at most,
+   * or the current handler call if that takes longer.
    */
   async stop(): Promise<void> {
     this.started = false;
-    await Promise.all([...this.registered].map((consumer) => consumer.stop()));
-    await this.indexer.stop();
+    await Promise.all([
+      ...[...this.registered].map((consumer) => consumer.stop()),
+      this.indexer.stop(),
+    ]);
   }
 
   /**
-   * `stop()`, then closes the source and the store. Final: afterwards `start()`,
-   * `init()` and `addAddress()` reject with code `CLOSED`. Calling it again
-   * returns the same promise.
+   * `stop()`, then closes the source (rejecting its pending requests) and the
+   * store. Final: afterwards `start()`, `init()` and `addAddress()` reject with
+   * code `CLOSED`. Calling it again returns the same promise.
+   *
+   * Takes as long as `stop()` plus closing the store. The source and the store
+   * are closed even if one of them fails to close; the promise then rejects with
+   * that error, after both were attempted. Use it on SIGTERM (the CLI does).
    */
   close(): Promise<void> {
     this.closed ??= (async () => {
       await this.stop();
-      await this.source.close?.();
-      await this.store.close();
+      const results = await Promise.allSettled([
+        (async () => this.source.close?.())(),
+        (async () => this.store.close())(),
+      ]);
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed) throw failed.reason;
     })();
     return this.closed;
   }

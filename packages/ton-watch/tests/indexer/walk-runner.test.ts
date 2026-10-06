@@ -3,6 +3,7 @@ import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { SourceError } from "../../src/core/errors";
 import type { TxRecord } from "../../src/core/types";
 import { PageFetcher } from "../../src/indexer/page-fetcher";
+import { Run } from "../../src/indexer/run";
 import type { Walk, WalkKind } from "../../src/indexer/walk";
 import { WalkRunner } from "../../src/indexer/walk-runner";
 import { WalkScheduler } from "../../src/indexer/walk-scheduler";
@@ -58,6 +59,7 @@ async function setup(
     warn: log("warn"),
     error: log("error"),
   };
+  const run = new Run();
   const runner = new WalkRunner({
     store,
     fetcher,
@@ -68,6 +70,7 @@ async function setup(
     metrics,
     logger,
     onWalkFinished: (address) => finished.push(address),
+    currentRun: () => run,
   });
   return {
     txs: chain.txs(A),

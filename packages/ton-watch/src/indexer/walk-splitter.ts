@@ -3,9 +3,10 @@ import { classifyError } from "../core/errors";
 import type { TxId } from "../core/types";
 import type { Metrics } from "../metrics/metrics";
 import type { TxSource } from "../source/source";
-import { PendingTasks } from "../util/async";
+import { abortable, PendingTasks } from "../util/async";
 import type { Logger } from "../util/logger";
 import type { SplitOptions } from "./options";
+import type { Run } from "./run";
 import type { Walk } from "./walk";
 import type { WalkScheduler } from "./walk-scheduler";
 
@@ -28,10 +29,17 @@ export class WalkSplitter {
     private readonly scheduler: WalkScheduler,
     private readonly metrics: Metrics,
     private readonly logger: Logger,
+    private readonly currentRun: () => Run,
   ) {}
 
-  /** Splits the rest of `walk` if it is long enough. Runs in the background. */
+  /**
+   * Splits the rest of `walk` if it is long enough. Runs in the background; does
+   * nothing once a stop was requested, and an abandoned lookup leaves the walk
+   * whole (and splittable again).
+   */
   maybeSplit(walk: Walk): void {
+    const run = this.currentRun();
+    if (run.stopRequested) return;
     if (walk.split || walk.pages < MIN_PAGES_BEFORE_SPLIT || walk.fetched === 0) return;
     const ltPerTx = Number(walk.topLt - walk.cursor.lt) / walk.fetched;
     const remainingTxs = Number(walk.cursor.lt - walk.floorLt) / ltPerTx;
@@ -47,8 +55,11 @@ export class WalkSplitter {
     const targets = evenlySpaced(walk.floorLt, walk.cursor.lt, parts);
     this.metrics.inc("ton_watch_splits_total");
     this.background.track(
-      Promise.all(targets.map((lt) => this.findSplitPoint(walk.address, lt, ltPerTx))).then(
-        (found) => this.splitAt(walk, found, remainingTxs),
+      Promise.all(targets.map((lt) => this.findSplitPoint(walk.address, lt, ltPerTx, run))).then(
+        (found) => {
+          if (run.signal.aborted) walk.split = false;
+          else this.splitAt(walk, found, remainingTxs);
+        },
       ),
     );
   }
@@ -58,11 +69,19 @@ export class WalkSplitter {
     return this.background.settled();
   }
 
-  private findSplitPoint(address: string, lt: bigint, ltPerTx: number): Promise<TxId | null> {
-    return this.source.findTxNear!(address, lt, { ltPerTx }).catch((error) => {
-      this.metrics.error(classifyError(error), "findTxNear");
-      return null;
-    });
+  private findSplitPoint(
+    address: string,
+    lt: bigint,
+    ltPerTx: number,
+    run: Run,
+  ): Promise<TxId | null> {
+    const { signal } = run;
+    return abortable(this.source.findTxNear!(address, lt, { ltPerTx, signal }), signal).catch(
+      (error) => {
+        if (!signal.aborted) this.metrics.error(classifyError(error), "findTxNear");
+        return null;
+      },
+    );
   }
 
   /** Turns the part of `walk` below the found points into separate walks. */

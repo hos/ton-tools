@@ -1,16 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import net from "node:net";
-import type { LsConfig } from "@ton/ls";
 import { LiteClient } from "ton-lite-client";
 import { Functions } from "ton-lite-client/dist/schema.js";
-import { LiteConnection } from "../../src/source/liteserver/lite-engine";
-import { closedPort, startFakeLiteserver } from "../fixtures/liteserver/fake-liteserver";
-import mainnet from "../fixtures/liteserver/mainnet.json";
-import { runCloseAndExit } from "../fixtures/liteserver/run-close-and-exit";
-
-const LOCALHOST = 0x7f000001;
-/** Upper bound for the process to exit once `close()` resolved. */
-const EXIT_WITHIN_MS = 2_000;
+import { LiteConnection } from "../src/lite-connection.ts";
+import { startFakeLiteserver, TIP } from "./fixtures/fake-liteserver.ts";
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
@@ -61,7 +54,7 @@ describe("LiteConnection", () => {
     const engine = connectTo(await fakeServer());
     await until(() => engine.isReady());
     const info = await new LiteClient({ engine }).getMasterchainInfoExt();
-    expect(info.last.seqno).toBe(mainnet.tip.last.seqno);
+    expect(info.last.seqno).toBe(TIP.seqno);
   });
 
   test("a liteServer.error rejects with its message", async () => {
@@ -74,7 +67,7 @@ describe("LiteConnection", () => {
     const engine = connectTo(await fakeServer());
     expect(engine.isReady()).toBe(false);
     const info = await new LiteClient({ engine }).getMasterchainInfoExt();
-    expect(info.last.seqno).toBe(mainnet.tip.last.seqno);
+    expect(info.last.seqno).toBe(TIP.seqno);
   });
 
   test("an unanswered query times out", async () => {
@@ -115,44 +108,4 @@ describe("LiteConnection", () => {
     await Bun.sleep(100);
     expect(server.accepted()).toBe(accepted);
   });
-});
-
-describe("process exit after close()", () => {
-  const config = (server: { port: number; publicKey: string }): LsConfig => ({
-    ip: LOCALHOST,
-    port: server.port,
-    id: { key: server.publicKey },
-  });
-
-  test("a TonWatch over a LiteSource lets the process exit at once", async () => {
-    // Answers tip queries and hangs on the rest, so calls are pending at close;
-    // plus a server that never handshakes and one that refuses connections.
-    const servers = [
-      config(await fakeServer()),
-      config(await fakeServer({ silent: true })),
-      config({ port: await closedPort(), publicKey: Buffer.alloc(32, 1).toString("base64") }),
-    ];
-    const result = await runCloseAndExit(
-      { LITESERVERS: JSON.stringify(servers), RUN_MS: "1000" },
-      30_000,
-    );
-    expect(result.stderr).toBe("");
-    expect(result.exitCode).toBe(0);
-    expect(result.exitMsAfterClose).not.toBeNull();
-    expect(result.exitMsAfterClose!).toBeLessThan(EXIT_WITHIN_MS);
-  }, 40_000);
-
-  test("a failed LiteSource.connect() lets the process exit at once", async () => {
-    const servers = [
-      config(await fakeServer({ silent: true })),
-      config({ port: await closedPort(), publicKey: Buffer.alloc(32, 1).toString("base64") }),
-    ];
-    const result = await runCloseAndExit(
-      { LITESERVERS: JSON.stringify(servers), EXPECT_CONNECT_FAILURE: "1" },
-      30_000,
-    );
-    expect(result.stderr).toBe("");
-    expect(result.exitCode).toBe(0);
-    expect(result.exitMsAfterClose!).toBeLessThan(EXIT_WITHIN_MS);
-  }, 40_000);
 });

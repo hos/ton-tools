@@ -3,9 +3,10 @@ import { classifyError, errorMessage } from "../core/errors";
 import { type TxId, txIdEquals } from "../core/types";
 import type { Metrics } from "../metrics/metrics";
 import type { ChainTip, TxSource } from "../source/source";
-import { mapConcurrent } from "../util/async";
+import { abortable, mapConcurrent } from "../util/async";
 import type { Logger } from "../util/logger";
 import type { IndexerSettings } from "./options";
+import { Run } from "./run";
 import type { AddressTable, TrackedAddress } from "./tracked-address";
 
 type DetectorSettings = Pick<
@@ -32,16 +33,24 @@ export class ChangeDetector {
     private readonly logger: Logger,
   ) {}
 
-  /** Runs detection for a new tip; on the same tip only first-time addresses are read. */
-  async detect(tip: ChainTip): Promise<void> {
+  /**
+   * Runs detection for a new tip; on the same tip only first-time addresses are
+   * read. Once a stop of `run` is requested it reads nothing more; once `run` is
+   * abandoned it rejects, leaving the tip to be detected again.
+   */
+  async detect(tip: ChainTip, run: Run = new Run()): Promise<void> {
     if (this.lastDetectedTip && tip.seqno === this.lastDetectedTip.seqno) {
       await this.poll(
         this.addresses.all().filter((tracked) => !tracked.observed),
         tip,
+        run,
       );
       return;
     }
-    await this.detectNewBlocks(tip);
+    await this.detectNewBlocks(tip, run);
+    run.signal.throwIfAborted();
+    // Interrupted: not every address was read at this tip.
+    if (run.stopRequested) return;
     this.lastDetectedTip = tip;
   }
 
@@ -52,18 +61,18 @@ export class ChangeDetector {
     return this.addresses.size >= this.settings.autoBlocksThreshold;
   }
 
-  private async detectNewBlocks(tip: ChainTip): Promise<void> {
+  private async detectNewBlocks(tip: ChainTip, run: Run): Promise<void> {
     const now = Date.now();
     let toPoll: TrackedAddress[];
     if (this.useBlocks() && this.lastDetectedTip && this.blocksVerified) {
-      toPoll = await this.matchBlockListing(this.lastDetectedTip, tip, now);
+      toPoll = await this.matchBlockListing(this.lastDetectedTip, tip, now, run);
     } else {
       const blocks = this.useBlocks();
       toPoll = this.addresses
         .all()
         .filter((tracked) => blocks || !tracked.observed || tracked.nextPollAt <= now);
     }
-    const allPolled = await this.poll(toPoll, tip);
+    const allPolled = await this.poll(toPoll, tip, run);
     if (this.useBlocks()) this.blocksVerified = allPolled;
   }
 
@@ -76,12 +85,18 @@ export class ChangeDetector {
     prev: ChainTip,
     tip: ChainTip,
     now: number,
+    run: Run,
   ): Promise<TrackedAddress[]> {
     const workchains = new Set(this.addresses.addresses().map(workchainOf));
+    const { signal } = run;
     let touched: Map<string, TxId> | null = null;
     try {
-      touched = await this.source.getTouchedAccounts!(prev, tip, workchains);
+      touched = await abortable(
+        this.source.getTouchedAccounts!(prev, tip, workchains, { signal }),
+        signal,
+      );
     } catch (error) {
+      signal.throwIfAborted();
       this.metrics.error(classifyError(error), "getTouchedAccounts");
       this.logger.warn("block listing failed, polling instead:", errorMessage(error));
     }
@@ -125,12 +140,20 @@ export class ChangeDetector {
     return due.slice(0, perTick);
   }
 
-  /** Reads the last transaction of each address. Resolves to whether all reads succeeded. */
-  private async poll(targets: TrackedAddress[], tip: ChainTip): Promise<boolean> {
+  /**
+   * Reads the last transaction of each address. Resolves to whether all reads
+   * succeeded; reads not started because a stop was requested count as failed.
+   */
+  private async poll(targets: TrackedAddress[], tip: ChainTip, run: Run): Promise<boolean> {
     const now = Date.now();
+    const { signal } = run;
     const results = await mapConcurrent(targets, this.settings.concurrency, async (tracked) => {
+      if (run.stopRequested) return false;
       try {
-        const lastTx = await this.source.getLastTx(tracked.state.address, tip);
+        const lastTx = await abortable(
+          this.source.getLastTx(tracked.state.address, tip, { signal }),
+          signal,
+        );
         this.finishReconciliation(tracked, lastTx);
         tracked.verifiedAt = now;
         const changed = !tracked.observed || !txIdEquals(tracked.observed.lastTx, lastTx);
@@ -139,7 +162,7 @@ export class ChangeDetector {
         tracked.nextPollAt = now + this.idlePollDelay(tracked.idleStreak);
         return true;
       } catch (error) {
-        this.metrics.error(classifyError(error), "getLastTx");
+        if (!signal.aborted) this.metrics.error(classifyError(error), "getLastTx");
         return false;
       }
     });

@@ -47,9 +47,7 @@
   },
   "dependencies": {
     "@ton/ls": "workspace:*",
-    "adnl": "^1.0.3",
-    "ton-lite-client": "^3.1.1",
-    "ton-tl": "^1.0.1"
+    "ton-lite-client": "^3.1.1"
   },
   "peerDependencies": {
     "@ton/core": "^0.63.1",
@@ -64,6 +62,7 @@
     "@electric-sql/pglite": "^0.5.8",
     "@ton/core": "^0.63.1",
     "@types/pg": "^8.23.1",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "ton-tl": "^1.0.1"
   }
 }

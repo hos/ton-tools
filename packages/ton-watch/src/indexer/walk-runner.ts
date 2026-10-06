@@ -8,6 +8,7 @@ import type { Logger } from "../util/logger";
 import type { IndexerEmitter } from "./events";
 import type { IndexerSettings } from "./options";
 import type { PageFetcher } from "./page-fetcher";
+import type { Run } from "./run";
 import { isParked, type Walk } from "./walk";
 import type { WalkScheduler } from "./walk-scheduler";
 import type { WalkSplitter } from "./walk-splitter";
@@ -24,28 +25,34 @@ export interface WalkRunnerDeps {
   logger: Logger;
   /** Called after a walk is done and removed from the scheduler. */
   onWalkFinished: (address: string) => void;
+  /** The indexer's current start…stop cycle. */
+  currentRun: () => Run;
 }
 
 /**
  * Runs one page of a walk: fetch, store what is in range, then either move the
  * cursor down, finish the walk, or schedule a retry with backoff. A walk dropped
- * while its page was in flight is left alone.
+ * while its page was in flight is left alone, and so is a failure once a stop was
+ * requested: the walk is neither retried nor counted as failing, and resumes from
+ * its cursor after the next start.
  */
 export class WalkRunner {
   constructor(private readonly deps: WalkRunnerDeps) {}
 
   async runPage(walk: Walk): Promise<void> {
+    const run = this.deps.currentRun();
     try {
-      const page = await this.deps.fetcher.fetch(walk);
-      // Dropped while the page was in flight (its address was removed).
+      const page = await this.deps.fetcher.fetch(walk, run.signal);
+      // Dropped while the page was in flight (address removed, or page abandoned).
       if (!this.deps.scheduler.has(walk)) return;
-      await this.storePage(walk, page);
+      await this.storePage(walk, page, run);
     } catch (error) {
+      if (run.stopRequested) return;
       if (this.deps.scheduler.has(walk)) this.scheduleRetry(walk, error);
     }
   }
 
-  private async storePage(walk: Walk, page: TxRecord[]): Promise<void> {
+  private async storePage(walk: Walk, page: TxRecord[], run: Run): Promise<void> {
     const { store, metrics, scheduler, splitter } = this.deps;
     walk.pages++;
     walk.fetched += page.length;
@@ -69,7 +76,7 @@ export class WalkRunner {
       return;
     }
     walk.cursor = { lt: oldest.prevLt, hash: oldest.prevHash };
-    splitter?.maybeSplit(walk);
+    if (!run.stopRequested) splitter?.maybeSplit(walk);
   }
 
   private scheduleRetry(walk: Walk, error: unknown): void {

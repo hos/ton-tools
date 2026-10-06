@@ -28,7 +28,8 @@ watch.process("my-consumer", async (tx, ctx) => {
 });
 
 await watch.start();
-// … on shutdown: stop consumers and indexing, then close the source and the store
+// … on shutdown (e.g. SIGTERM): stop consumers and indexing, then close the source and
+// the store. Never hangs on the chain: in-flight requests get `stopTimeoutMs` (5s).
 await watch.close();
 ```
 
@@ -109,14 +110,22 @@ const watch = new TonWatch({ store, source, /* IndexingOptions */ concurrency: 1
 |---|---|
 | `init()` | runs migrations (never destructive); called by `start()` |
 | `start()` | starts every registered consumer, then indexing; rejects with `CONSUMER_LOCKED` (and starts nothing) if a consumer runs elsewhere |
-| `stop()` | graceful pause: consumers finish the transaction in hand, in-flight fetches complete; store and source stay open and `start()` resumes |
-| `close()` | `stop()`, then closes the source and the store; final — `start()`, `init()` and `addAddress()` reject with `CLOSED` afterwards. Idempotent |
+| `stop()` | prompt pause: starts and retries nothing new, gives requests in flight `stopTimeoutMs` (default 5000) to finish, then abandons them; consumers finish the transaction in hand. Store and source stay open and `start()` resumes |
+| `close()` | `stop()`, then closes the source (rejecting its pending requests) and the store; final — `start()`, `init()` and `addAddress()` reject with `CLOSED` afterwards. Idempotent |
 | `addAddress(address, { from })` / `removeAddress(address, { purge })` / `addresses()` | see [Addresses](#addresses) |
 | `process(name, handler, options)` | registers a [consumer](#consumer-api) |
 | `consumers()`, `consumerLag()`, `rewindConsumer()`, `deleteConsumer()`, `deadLetters()`, `replayDeadLetter()`, `discardDeadLetter()` | see [Managing consumers](#managing-consumers) |
 | `watermark(addresses?)` | lowest complete-up-to lt across the addresses |
 | `status()` | per-address indexing state as of the last tick |
 | `health({ maxLagSeconds = 120 })` | `ok` / `degraded` (lag above `maxLagSeconds`, or a range no liteserver serves) / `down` (not started, or no successful tick for 60s), with `reasons` |
+
+`stop()` and `close()` always resolve, and never wait on the chain longer than
+`stopTimeoutMs` (`0` abandons at once). Pages that arrive within it are stored;
+anything abandoned leaves only a gap, refetched after the next `start()` — nothing
+half-written reaches frontiers or cursors. The one thing they wait for without a
+deadline is a consumer handler call in progress: it is never interrupted, and its
+cursor (and `ctx.db` writes) commit — give your handler its own timeouts. `close()`
+rejects only if closing the source or the store itself fails (both are attempted).
 
 `TonWatch` owns its `store` and `source`: `close()` closes both (with `PgStore`, pass
 `onClose: () => pool.end()` to have it end your pool too). It forwards the indexer's
@@ -381,9 +390,9 @@ another account (hash or workchain), and a `jettonWallet` that is not an address
 ## Service
 
 `ton-watch run` runs the indexer, and delivers to the
-configured [webhooks](#webhooks), until SIGINT/SIGTERM, then finishes in-flight
-work and exits (0; 1 if stopping fails or takes over 30s; a second signal exits 1
-at once). Configuration is validated before connecting to anything. The HTTP port is
+configured [webhooks](#webhooks), until SIGINT/SIGTERM, then `close()`s: requests in
+flight get 5s, webhook deliveries in progress finish, and it exits (0; 1 if stopping
+fails or takes over 30s; a second signal exits 1 at once). Configuration is validated before connecting to anything. The HTTP port is
 bound before any work starts, so a port in use exits 1 right away. It never drops
 data: schema changes are versioned, append-only migrations
 (`<schema>.schema_migrations`); see [docs/migrations.md](docs/migrations.md) for

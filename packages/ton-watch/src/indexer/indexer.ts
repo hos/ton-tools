@@ -4,6 +4,7 @@ import { classifyError, errorMessage } from "../core/errors";
 import { Metrics } from "../metrics/metrics";
 import type { ChainTip, TxSource } from "../source/source";
 import type { Store } from "../stores/store";
+import { abortable, settlesWithin } from "../util/async";
 import { type Logger, silentLogger } from "../util/logger";
 import { ChangeDetector } from "./change-detector";
 import type { IndexerEventMap } from "./events";
@@ -16,6 +17,7 @@ import {
   resolveSplit,
 } from "./options";
 import { PageFetcher } from "./page-fetcher";
+import { Run } from "./run";
 import { type AddressStatus, addressStatus, recordGauges } from "./status";
 import { AddressTable } from "./tracked-address";
 import { isParked } from "./walk";
@@ -26,6 +28,12 @@ import { WalkSplitter } from "./walk-splitter";
 /** How often `drain()` re-checks for remaining work while pages are in flight. */
 const DRAIN_POLL_MS = 50;
 const DEFAULT_SYNC_ROUNDS = 1000;
+/**
+ * After the grace period, how long aborted work may take to unwind before the
+ * pages still in flight (stuck in the store, or a source call ignoring the abort
+ * signal) are given up on.
+ */
+const ABANDON_SETTLE_MS = 200;
 
 /**
  * Indexes every transaction of the addresses in the store. Each tick it reads the
@@ -63,6 +71,10 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
   private loopGeneration = 0;
   /** Incremented by every `stop()`, so a `syncOnce()` it interrupts returns. */
   private stopGeneration = 0;
+  /** The current start…stop cycle; replaced once a stop is over. */
+  private run = new Run();
+  /** The stop in progress, so overlapping `stop()` calls share it. */
+  private halting: Promise<void> | null = null;
 
   constructor(options: IndexerOptions) {
     super();
@@ -94,8 +106,9 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
       this.logger,
     );
     const split = resolveSplit(options);
+    const currentRun = () => this.run;
     this.splitter = split
-      ? new WalkSplitter(split, this.source, this.scheduler, this.metrics, this.logger)
+      ? new WalkSplitter(split, this.source, this.scheduler, this.metrics, this.logger, currentRun)
       : null;
     this.runner = new WalkRunner({
       store: this.store,
@@ -107,6 +120,7 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
       metrics: this.metrics,
       logger: this.logger,
       onWalkFinished: (address) => this.maintenance.onWalkFinished(address),
+      currentRun,
     });
   }
 
@@ -119,6 +133,8 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
   start(): void {
     if (this.running) return;
     this.running = true;
+    // Started again while a stop is still finishing: new work belongs to a new cycle.
+    if (this.run.stopRequested) this.run = new Run();
     this.scheduler.resume();
     const generation = ++this.loopGeneration;
     const isCurrent = () => this.running && this.loopGeneration === generation;
@@ -126,7 +142,9 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
       // A tick of a loop stopped just before this start() may still be running.
       if (this.currentTick) await this.currentTick;
       if (!isCurrent()) return;
+      const run = this.run;
       const tick = this.tick().catch((error) => {
+        if (run.signal.aborted) return;
         this.metrics.error(classifyError(error), "tick");
         this.logger.warn("tick failed:", errorMessage(error));
       });
@@ -139,33 +157,44 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
   }
 
   /**
-   * Stops ticking and starting pages, then waits for the tick, the pages in
-   * flight and the store updates they started (frontier moves, walk splits) to
-   * finish. Remaining work stays scheduled for the next `start()` or `syncOnce()`;
-   * a `syncOnce()` in progress returns.
+   * Stops promptly. At once: no tick, page, walk split or retry starts any more.
+   * Then the tick, the pages in flight and the store updates they started
+   * (frontier moves, walk splits) get `stopTimeoutMs` to finish, so pages already
+   * on their way are stored. After that, what is left is abandoned: its source
+   * calls are aborted (see `SourceCallOptions.signal`) and their walks dropped, to
+   * be found again as gaps. Remaining work stays scheduled for the next `start()`
+   * or `syncOnce()`; a `syncOnce()` in progress returns.
+   *
+   * Always resolves, within about `stopTimeoutMs` (plus a store call that
+   * does not return at all).
    */
   async stop(): Promise<void> {
     this.running = false;
     this.stopGeneration++;
     if (this.tickTimer) clearTimeout(this.tickTimer);
     this.tickTimer = null;
-    this.scheduler.stop();
-    await this.currentTick;
-    await this.pause();
+    await this.halt();
   }
 
   /** One detection + maintenance round. Exposed for tests and one-shot tools. */
   async tick(): Promise<void> {
-    const tip = await this.source.getTip();
+    const run = this.run;
+    const { signal } = run;
+    const tip = await abortable(this.source.getTip({ signal }), signal);
     this.tip = tip;
     this.lastTickAt = Date.now();
     this.metrics.set("ton_watch_tip_seqno", tip.seqno);
     this.metrics.set("ton_watch_tip_utime", tip.utime);
+    // From here on each step is skipped once a stop is requested.
+    if (run.stopRequested) return;
 
     await this.refreshAddresses();
-    await this.detector.detect(tip);
+    if (run.stopRequested) return;
+    await this.detector.detect(tip, run);
+    if (run.stopRequested) return;
     this.scheduleHeadWalks();
-    await this.maintenance.scanGaps();
+    await this.maintenance.scanGaps(false, run);
+    if (run.stopRequested) return;
     await this.maintenance.markSynced();
     this.updateGauges();
     this.scheduler.pump();
@@ -200,6 +229,7 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
         try {
           await this.tick();
         } catch (error) {
+          if (interrupted()) return;
           this.metrics.error(classifyError(error), "tick");
           continue;
         }
@@ -213,13 +243,48 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
       }
     } finally {
       // Back to stopped unless start() was called meanwhile.
-      if (wasStopped && !this.running) await this.pause();
+      if (wasStopped && !this.running) await this.halt();
     }
   }
 
-  /** Stops starting pages and waits for the ones in flight and their background work. */
-  private async pause(): Promise<void> {
+  /**
+   * Stops starting work and waits for the work in flight: up to `stopTimeoutMs`,
+   * then aborts it (see `stop()`). Overlapping calls share one halt.
+   */
+  private halt(): Promise<void> {
+    this.halting ??= this.haltNow().finally(() => {
+      this.halting = null;
+    });
+    return this.halting;
+  }
+
+  private async haltNow(): Promise<void> {
+    const run = this.run;
+    run.requestStop();
     this.scheduler.stop();
+    const idle = this.whenIdle();
+    if (!(await settlesWithin(idle, this.settings.stopTimeoutMs))) {
+      run.abandon();
+      if (!(await settlesWithin(idle, ABANDON_SETTLE_MS)) && this.run === run) {
+        const abandoned = this.scheduler.abandonRunning();
+        // Their ranges are found again by the next gap scan of these addresses.
+        for (const walk of abandoned) {
+          const tracked = this.addresses.get(walk.address);
+          if (tracked) tracked.needsMaintenance = true;
+        }
+        this.currentTick = null;
+        this.logger.warn(
+          `stop: gave up on ${abandoned.length} page(s) and background work still running after ` +
+            `${this.settings.stopTimeoutMs}ms; missing ranges are refetched after the next start`,
+        );
+      }
+    }
+    if (this.run === run) this.run = new Run();
+  }
+
+  /** Resolves once the tick, the pages in flight and their background work are done. */
+  private async whenIdle(): Promise<void> {
+    await this.currentTick;
     while (this.scheduler.pagesInFlight > 0) await this.scheduler.whenIdle();
     await Promise.all([this.maintenance.settled(), this.splitter?.settled()]);
   }

@@ -3,7 +3,7 @@ import { beginCell, Dictionary, storeTransaction, type Transaction } from "@ton/
 import { SourceError } from "../../src/core/errors";
 import type { TxId, TxRecord } from "../../src/core/types";
 import { Metrics } from "../../src/metrics/metrics";
-import type { ChainTip, TxSource } from "../../src/source/source";
+import type { ChainTip, SourceCallOptions, TxSource } from "../../src/source/source";
 
 /** Deterministic PRNG (mulberry32). */
 export function rng(seed: number) {
@@ -182,7 +182,12 @@ export class FakeSource implements TxSource {
     return last ? { lt: last.lt, hash: last.hash } : null;
   }
 
-  async getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]> {
+  async getTransactions(
+    address: string,
+    from: TxId,
+    count: number,
+    _options?: SourceCallOptions,
+  ): Promise<TxRecord[]> {
     await this.enter("getTransactions");
     const txs = this.chain.txs(address);
     const idx = txs.findIndex((t) => t.lt === from.lt && t.hash.equals(from.hash));

@@ -40,9 +40,20 @@ class AdnlConnection extends ADNLClientTCP {
   }
 }
 
+/** Options of a `LiteConnection`. */
+export interface LiteConnectionOptions {
+  /** `tcp://<ip>:<port>`, as `LsConfigResolved.host`. */
+  host: string;
+  /** The server's Ed25519 public key (32 bytes). */
+  publicKey: Buffer;
+  /** Delay before reconnecting after the connection dropped. Default 10s. */
+  reconnectMs?: number;
+}
+
 /**
- * A `LiteEngine` for one liteserver: one ADNL connection, reconnected after it
- * drops, with queries sent once it is ready.
+ * A ton-lite-client `LiteEngine` for one liteserver: one ADNL connection,
+ * reconnected after it drops, with queries sent once it is ready. Use it as
+ * `new LiteClient({ engine: new LiteConnection(...) })` and `close()` it when done.
  *
  * Replaces ton-lite-client's `LiteSingleEngine` (3.1.1), whose `close()` leaves the
  * process unable to exit: after a connection error it unconditionally reopens the
@@ -61,7 +72,7 @@ export class LiteConnection extends EventEmitter implements LiteEngine {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly queries = new Map<string, PendingQuery>();
 
-  constructor(args: { host: string; publicKey: Buffer; reconnectMs?: number }) {
+  constructor(args: LiteConnectionOptions) {
     super();
     this.host = args.host;
     this.publicKey = args.publicKey;
@@ -69,14 +80,21 @@ export class LiteConnection extends EventEmitter implements LiteEngine {
     this.connect();
   }
 
+  /** True once `close()` was called. */
   isClosed(): boolean {
     return this.closed;
   }
 
+  /** True while the connection is established and handshaken. */
   isReady(): boolean {
     return this.ready;
   }
 
+  /**
+   * Sends one query; rejects with `Timeout` after `timeout` ms (default 5s), with
+   * the server's message on a `liteServer.error`, and with `Engine is closed` once
+   * closed. Queries made before the connection is ready are sent when it is.
+   */
   query<REQ, RES>(
     f: TLFunction<REQ, RES>,
     req: REQ,

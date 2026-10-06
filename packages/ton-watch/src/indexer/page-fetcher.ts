@@ -4,6 +4,7 @@ import type { TxRecord } from "../core/types";
 import type { Metrics } from "../metrics/metrics";
 import type { HistoryOptions } from "../source/history";
 import type { TxSource } from "../source/source";
+import { abortable } from "../util/async";
 import type { WalkRange } from "./walk";
 
 /**
@@ -18,28 +19,36 @@ export class PageFetcher {
     private readonly metrics: Metrics,
   ) {}
 
-  async fetch(walk: Pick<WalkRange, "address" | "cursor">): Promise<TxRecord[]> {
+  /** One page at the walk's cursor; rejects with `signal.reason` once `signal` aborts. */
+  async fetch(
+    walk: Pick<WalkRange, "address" | "cursor">,
+    signal?: AbortSignal,
+  ): Promise<TxRecord[]> {
     const history = this.history;
     if (history?.mode === "boost" && !history.source.busy?.()) {
       try {
-        return await this.fetchFromHistory(history, walk, "boost");
+        return await this.fetchFromHistory(history, walk, "boost", signal);
       } catch (error) {
+        signal?.throwIfAborted();
         this.metrics.error(classifyError(error), "history");
       }
     }
     try {
-      const page = await this.source.getTransactions(
-        walk.address,
-        walk.cursor,
-        this.source.maxPageSize,
+      const page = await abortable(
+        this.source.getTransactions(walk.address, walk.cursor, this.source.maxPageSize, {
+          signal,
+        }),
+        signal,
       );
       validatePage(walk.cursor, page);
       return page;
     } catch (error) {
+      signal?.throwIfAborted();
       if (!history || classifyError(error) !== "archive_unavailable") throw error;
       try {
-        return await this.fetchFromHistory(history, walk, "fallback");
+        return await this.fetchFromHistory(history, walk, "fallback", signal);
       } catch (historyError) {
+        signal?.throwIfAborted();
         this.metrics.error(classifyError(historyError), "history");
         throw error;
       }
@@ -50,9 +59,13 @@ export class PageFetcher {
     history: Required<HistoryOptions>,
     walk: Pick<WalkRange, "address" | "cursor">,
     reason: "boost" | "fallback",
+    signal: AbortSignal | undefined,
   ): Promise<TxRecord[]> {
     const { source } = history;
-    const page = await source.getTransactions(walk.address, walk.cursor, source.maxPageSize);
+    const page = await abortable(
+      source.getTransactions(walk.address, walk.cursor, source.maxPageSize, { signal }),
+      signal,
+    );
     validatePage(walk.cursor, page);
     this.metrics.inc("ton_watch_history_pages_total", { source: source.name, why: reason });
     return page;

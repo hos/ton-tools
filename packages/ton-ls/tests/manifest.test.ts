@@ -5,8 +5,8 @@
  */
 import { expect, test } from "bun:test";
 
-import jsr from "../jsr.json";
-import pkg from "../package.json";
+import jsr from "../jsr.json" with { type: "json" };
+import pkg from "../package.json" with { type: "json" };
 
 test("package.json and jsr.json agree on name, version and exports", () => {
   expect(jsr.name).toBe(pkg.name);

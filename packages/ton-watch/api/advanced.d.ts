@@ -22,7 +22,7 @@ export type { IndexerEventMap } from "./indexer/events";
 export { Indexer } from "./indexer/indexer";
 export type { IndexerOptions } from "./indexer/options";
 export type { HistorySource } from "./source/history";
-export type { TxSource } from "./source/source";
+export type { FindTxNearOptions, SourceCallOptions, TxSource } from "./source/source";
 export type { Backlog, ConsumerLock, ConsumerStateStore } from "./stores/consumer-state";
 export type { PgSession } from "./stores/pg/database";
 export type { AddAddressOptions as StoreAddAddressOptions, Store, StoreTransaction, } from "./stores/store";
@@ -641,16 +641,26 @@ export declare class Indexer extends EventEmitter<IndexerEventMap> {
     private loopGeneration;
     /** Incremented by every `stop()`, so a `syncOnce()` it interrupts returns. */
     private stopGeneration;
+    /** The current start…stop cycle; replaced once a stop is over. */
+    private run;
+    /** The stop in progress, so overlapping `stop()` calls share it. */
+    private halting;
     constructor(options: IndexerOptions);
     /** The chain tip seen by the last tick. */
     get chainTip(): ChainTip | null;
     /** Ticks every `tickMs` until `stop()`. */
     start(): void;
     /**
-     * Stops ticking and starting pages, then waits for the tick, the pages in
-     * flight and the store updates they started (frontier moves, walk splits) to
-     * finish. Remaining work stays scheduled for the next `start()` or `syncOnce()`;
-     * a `syncOnce()` in progress returns.
+     * Stops promptly. At once: no tick, page, walk split or retry starts any more.
+     * Then the tick, the pages in flight and the store updates they started
+     * (frontier moves, walk splits) get `stopTimeoutMs` to finish, so pages already
+     * on their way are stored. After that, what is left is abandoned: its source
+     * calls are aborted (see `SourceCallOptions.signal`) and their walks dropped, to
+     * be found again as gaps. Remaining work stays scheduled for the next `start()`
+     * or `syncOnce()`; a `syncOnce()` in progress returns.
+     *
+     * Always resolves, within about `stopTimeoutMs` (plus a store call that
+     * does not return at all).
      */
     stop(): Promise<void>;
     /** One detection + maintenance round. Exposed for tests and one-shot tools. */
@@ -668,8 +678,14 @@ export declare class Indexer extends EventEmitter<IndexerEventMap> {
      * early if `stop()` is called meanwhile.
      */
     syncOnce(maxRounds?: number): Promise<void>;
-    /** Stops starting pages and waits for the ones in flight and their background work. */
-    private pause;
+    /**
+     * Stops starting work and waits for the work in flight: up to `stopTimeoutMs`,
+     * then aborts it (see `stop()`). Overlapping calls share one halt.
+     */
+    private halt;
+    private haltNow;
+    /** Resolves once the tick, the pages in flight and their background work are done. */
+    private whenIdle;
     status(): AddressStatus[];
     private refreshAddresses;
     /** Schedules a head walk for every address whose on-chain last tx is above anything claimed. */
@@ -735,6 +751,13 @@ export interface IndexingOptions {
      * many addresses they multiply the series a Prometheus server has to keep.
      */
     addressMetrics?: boolean;
+    /**
+     * Grace period of `stop()` / `close()`: how long fetches already in flight may
+     * still finish (and their pages be stored) once no new work starts. What is
+     * still in flight afterwards is abandoned — its source calls are aborted and it
+     * is refetched as a gap after the next start. Default 5000ms; 0 abandons at once.
+     */
+    stopTimeoutMs?: number;
 }
 /**
  * Options of a standalone `Indexer` (`@ton/watch/advanced`).
@@ -759,10 +782,14 @@ export interface IndexerSettings {
     retryMaxMs: number;
     archiveRetryMs: number;
     addressMetrics: boolean;
+    stopTimeoutMs: number;
 }
 export declare const DEFAULT_SETTINGS: IndexerSettings;
 export declare const DEFAULT_SPLIT: Required<SplitOptions>;
-/** Tuning values with defaults applied. Throws on a `concurrency` that would start no work. */
+/**
+ * Tuning values with defaults applied. Throws `INVALID_OPTION` on a `concurrency`
+ * that would start no work or a negative `stopTimeoutMs`.
+ */
 export declare function resolveSettings(options: IndexingOptions): IndexerSettings;
 /** Split settings, or null when splitting is off or the source cannot find split points. */
 export declare function resolveSplit(options: IndexerOptions<unknown>): Required<SplitOptions> | null;
@@ -1118,8 +1145,25 @@ export type GaugeName = {
 /** `value` if it is in `allowed`, else `"other"`: keeps a label's values a closed set. */
 export declare function closedLabel<T extends string>(allowed: readonly T[], value: string): T;
 
+// ---- source/call-options.d.ts
+/**
+ * Per-call options every `TxSource` and `HistorySource` method accepts.
+ *
+ * @experimental Exported from `@ton/watch/advanced`, with `TxSource`.
+ */
+export interface SourceCallOptions {
+    /**
+     * Abandons the call: once aborted, it makes no further attempt (no retry, no
+     * other server, no further sub-request) and rejects promptly with
+     * `signal.reason`, whether or not a request is still on the wire. The indexer
+     * aborts it when a stop's grace period (`stopTimeoutMs`) is over.
+     */
+    signal?: AbortSignal;
+}
+
 // ---- source/history.d.ts
 import type { TxId, TxRecord } from "../core/types";
+import type { SourceCallOptions } from "./call-options";
 /**
  * Optional plug-in that serves account history with bigger pages and deeper
  * retention than liteservers (e.g. `@ton/watch/toncenter`). The indexer only ever
@@ -1135,7 +1179,8 @@ export interface HistorySource {
     readonly name: string;
     /** Largest page it serves (toncenter: up to 1000). */
     readonly maxPageSize: number;
-    getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]>;
+    /** Like `TxSource.getTransactions`; should honor `options.signal` the same way. */
+    getTransactions(address: string, from: TxId, count: number, options?: SourceCallOptions): Promise<TxRecord[]>;
     /** True while it has no spare capacity (rate budget used up); `boost` mode then uses liteservers. */
     busy?(): boolean;
     close?(): Promise<void>;
@@ -1155,6 +1200,7 @@ export interface HistoryOptions {
 // ---- source/source.d.ts
 import type { TxId, TxRecord } from "../core/types";
 import type { Metrics } from "../metrics/metrics";
+import type { SourceCallOptions } from "./call-options";
 /** Full identifier of a block. */
 export interface BlockRef {
     workchain: number;
@@ -1183,37 +1229,43 @@ export interface ChainTip {
      */
     syncLt: bigint;
 }
+export type { SourceCallOptions };
+/** Options of `TxSource.findTxNear`. */
+export interface FindTxNearOptions extends SourceCallOptions {
+    /** Average lt distance between the account's transactions, to budget the search. */
+    ltPerTx?: number;
+}
 /**
  * Where transactions come from. `LiteSource` is the liteserver implementation; tests
- * use a fake. Every method may throw a `SourceError`.
+ * use a fake. Every method may throw a `SourceError`, and takes an optional
+ * `SourceCallOptions` whose `signal` it should honor (a source that ignores it
+ * still works; a stopping indexer then just stops waiting for it).
  *
  * @experimental Custom implementations are unsupported in 0.x: methods may be
  * added in minor versions. Exported from `@ton/watch/advanced`.
  */
 export interface TxSource {
-    getTip(): Promise<ChainTip>;
+    getTip(options?: SourceCallOptions): Promise<ChainTip>;
     /** Last transaction of `address` as of `tip`, or null if it has none. */
-    getLastTx(address: string, tip: ChainTip): Promise<TxId | null>;
+    getLastTx(address: string, tip: ChainTip, options?: SourceCallOptions): Promise<TxId | null>;
     /**
      * Up to `count` transactions of `address`, newest first, starting at `from`
      * (inclusive) and walking back through prev links.
      */
-    getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]>;
+    getTransactions(address: string, from: TxId, count: number, options?: SourceCallOptions): Promise<TxRecord[]>;
     /**
      * Accounts that had transactions in blocks after `prev` up to `next`, with their
      * newest transaction. Returns null when it cannot tell (shard split/merge, too
      * far behind); the caller then falls back to polling every address.
      */
-    getTouchedAccounts?(prev: ChainTip, next: ChainTip, workchains: ReadonlySet<number>): Promise<Map<string, TxId> | null>;
+    getTouchedAccounts?(prev: ChainTip, next: ChainTip, workchains: ReadonlySet<number>, options?: SourceCallOptions): Promise<Map<string, TxId> | null>;
     /**
      * Optional: some transaction of `address` with lt at or below `lt`, close to it.
      * Lets the indexer cut one long missing range into pieces fetched in parallel
      * (a single range is otherwise a strictly sequential walk, one page per round
      * trip). Returns null when nothing is found cheaply.
      */
-    findTxNear?(address: string, lt: bigint, hint?: {
-        ltPerTx?: number;
-    }): Promise<TxId | null>;
+    findTxNear?(address: string, lt: bigint, options?: FindTxNearOptions): Promise<TxId | null>;
     /** Largest `count` that `getTransactions` honors. */
     readonly maxPageSize: number;
     /** When set, the indexer records into the same registry. */
