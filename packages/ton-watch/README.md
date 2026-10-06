@@ -258,8 +258,15 @@ bun test                                   # 93 tests: unit, indexer, consumer, 
 TEST_DATABASE_URL=postgres://… bun test    # also run the store contract on real Postgres
 LIVE=1 bun test tests/live.test.ts         # mainnet: last 3000 txs of a busy address vs toncenter,
                                            # toncenter pages vs liteserver pages
-bun run typecheck
+bun run typecheck                           # strict tsc over src/, tests/, bench/
+bun run lint                                # Biome (root biome.json); `bun run format` applies fixes
 ```
+
+Source layout (`src/`): `core/` domain types and chain-link rules, `indexer/`
+(the `Indexer` orchestrator plus walk scheduling, fetching, splitting, change
+detection and maintenance), `consumer/`, `source/` (`TxSource`, `liteserver/`),
+`stores/` (`memory/`, `pg/`), `plugins/toncenter/`, `service/` + `bin/` (the
+CLI), `metrics/`, `util/`. Tests mirror it.
 
 Benchmarks (`bench/`, mainnet): `accounts.ts` picks the address sets, then
 `archive-depth.ts`, `backfill.ts`, `block-scan.ts`, `outage.ts`, `idle.ts`;
