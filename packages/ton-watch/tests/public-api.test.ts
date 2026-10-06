@@ -88,6 +88,18 @@ describe("public API", () => {
     expect(typeof toncenter.ToncenterHistory).toBe("function");
   });
 
+  test("ton-watch/parse exports the transaction parsers", async () => {
+    const parse = await import("ton-watch/parse");
+    expect(Object.keys(parse).sort()).toEqual([
+      "Op",
+      "incomingJettonTransfer",
+      "incomingPayment",
+      "parseMessage",
+      "parseMessageBody",
+      "parseTransaction",
+    ]);
+  });
+
   test("the main entry does not pull in the toncenter plug-in", async () => {
     const api = await import("ton-watch");
     expect(Object.keys(api)).not.toContain("ToncenterHistory");
@@ -97,6 +109,7 @@ describe("public API", () => {
     expect(pkg.exports).toEqual({
       ".": "./src/index.ts",
       "./toncenter": "./src/plugins/toncenter/index.ts",
+      "./parse": "./src/parse/index.ts",
     });
     expect(pkg.main).toBe("src/index.ts");
     expect(pkg.module).toBe("src/index.ts");
@@ -104,6 +117,9 @@ describe("public API", () => {
     expect(Bun.resolveSync("ton-watch", dir)).toBe(Bun.resolveSync("./src/index.ts", dir));
     expect(Bun.resolveSync("ton-watch/toncenter", dir)).toBe(
       Bun.resolveSync("./src/plugins/toncenter/index.ts", dir),
+    );
+    expect(Bun.resolveSync("ton-watch/parse", dir)).toBe(
+      Bun.resolveSync("./src/parse/index.ts", dir),
     );
     expect(await Bun.file(Bun.resolveSync(`./${pkg.bin["ton-watch"]}`, dir)).exists()).toBe(true);
   });

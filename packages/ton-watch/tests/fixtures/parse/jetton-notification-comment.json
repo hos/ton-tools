@@ -1,0 +1,48 @@
+{
+  "source": "toncenter.com api/v2 getTransactions (boc) + api/v3 transactions (summary), mainnet",
+  "address": "0:7E0FB71E6F1460AAD952DCBA695FA728DF18701E6B0D3142AF7A5151DCCB9A68",
+  "lt": "108207715000018",
+  "hash": "47e1cbce97abfc3bdd40af51008abaab76ff4eea9e13a81621223983fcc515c8",
+  "boc": "te6cckECBwEAAVoAA6934Ptx5vFGCq2VLcumlfpyjfGHAeaw0xQq96UVHcy5poAABiahJqHtIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAasUTdQABgIAQIDAQGgBACCcpCuyJZa+rsW68PLm0COuucbYY14eIvIDQmENZPKyY2kJFcYPK4M7KacNhDCnKrbANjqcHkAZ1saykqcdUajcBAACQwIQEkgAatIAechMofqnNJi4WEJep6NKKsfv8aotBtzUJOrHkDrj8xrAB+D7cebxRgqtlS3LppX6co3xhwHmsNMUKvelFR3MuaaBAQGAoGuAADE1CTUPaLViibqwAUBZHNi0JwAAAAAAAAAAEBDDZlIAZHtDsgZ3KDI0yXhfPCwcfwIvAzZ0SkNyDzLGoO7HWD3BgA+AAAAAENyb3NzLWNoYWluIHN3YXAgd2l0aGRyYXdhbFknpjA=",
+  "toncenter": {
+    "aborted": true,
+    "compute_success": null,
+    "action_success": null,
+    "bounce": null,
+    "in_msg": {
+      "source": "0:F3909943F54E693170B084BD4F4694558FDFE3545A0DB9A849D58F2075C7E635",
+      "destination": "0:7E0FB71E6F1460AAD952DCBA695FA728DF18701E6B0D3142AF7A5151DCCB9A68",
+      "value": "1",
+      "opcode": "0x7362d09c",
+      "bounce": false,
+      "bounced": false,
+      "fwd_fee": "82135"
+    },
+    "in_msg_decoded": {
+      "@type": "jetton_notify",
+      "query_id": "0",
+      "amount": {
+        "@type": "var_uint",
+        "len": "4",
+        "value": "70310292"
+      },
+      "sender": {
+        "@type": "addr_std",
+        "anycast": {
+          "@type": "nothing_from_maybe"
+        },
+        "workchain_id": "0",
+        "address": "C8F687640CEE50646992F0BE785838FE045E066CE89486E41E658D41DD8EB07B"
+      },
+      "forward_payload": {
+        "@type": "second_from_either",
+        "value": {
+          "@type": "text_comment",
+          "text": "Cross-chain swap withdrawal"
+        }
+      }
+    },
+    "out_msgs": 0,
+    "total_fees": "0"
+  }
+}
