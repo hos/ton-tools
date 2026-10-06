@@ -1,43 +1,29 @@
-import { pgClient, type Transactions } from "./stores/pg/pg-client";
-
-import { getLiteClient } from "./lite-client";
-import { Watch } from "./watch";
-import { PgStore } from "./stores";
-import { Cell, loadTransaction } from "@ton/core";
-
-const address = "UQCJTkhd1W2wztkVNp_dsKBpv2SIoUWoIyzI7mQrbSrj_Ilk";
-
-const liteClient = await getLiteClient("mainnet");
-
-const store = new PgStore(pgClient);
-const watch = new Watch({ liteClient, store });
-
-await watch.store.start({ drop: true });
-
-if (address) {
-  await watch.store.setAddress(address, 0n);
-}
-
-const allAddresses = await watch.store.allAddresses();
-console.log(`Watching addresses:
-  ${allAddresses.map((a) => ` "${a}"`).join("\n")}`);
-
-await watch.start();
-
-const {
-  rows: [{ boc }],
-} = await pgClient.query<Pick<Transactions, "boc">>(
-  `select boc from transactions order by created_at desc limit 1`
-);
-
-if (!boc) {
-  throw new Error("No transactions found");
-}
-
-const cell = Cell.fromBoc(boc)[0];
-const tx = loadTransaction(cell.beginParse());
-
-console.log(`Last transaction: ${tx.hash().toString("hex")}`);
-
-// Cleanup on exit
-// await watch.close();
+export { TonWatch, toRaw, type TonWatchOptions, type AddAddressOptions, type Health } from "./watch";
+export { Indexer, type IndexerOptions, type DetectMode, type AddressStatus } from "./indexer";
+export {
+  Consumer,
+  type TxHandler,
+  type HandlerContext,
+  type ProcessOptions,
+  type ConsumerStatus,
+} from "./consumer";
+export { LiteSource, type LiteSourceOptions } from "./source/lite-source";
+export { ServerPool, type PoolMember, type ServerPoolOptions, type ServerStats } from "./source/pool";
+export type { TxSource, ChainTip, ShardTop, BlockRef } from "./source/source";
+export { MemoryStore } from "./stores/memory-store";
+export { PgStore, poolDatabase, type PgDatabase, type PgQueryable, type PgStoreOptions } from "./stores/pg/pg-store";
+export type { Store, AddAddressOptions as StoreAddAddressOptions } from "./stores/store";
+export { Metrics } from "./metrics";
+export { SourceError, classifyError, type ErrorKind } from "./errors";
+export { consoleLogger, silentLogger, type Logger, type LogLevel } from "./logger";
+export { validatePage, analyzeChain } from "./chain";
+export {
+  completeUpTo,
+  toIndexedTx,
+  txIdEquals,
+  type TxId,
+  type TxRecord,
+  type IndexedTx,
+  type AddressState,
+  type Gap,
+} from "./types";

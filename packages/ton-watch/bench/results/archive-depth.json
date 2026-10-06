@@ -1,0 +1,381 @@
+{
+  "measuredAt": "2026-10-06T11:30:43.838Z",
+  "address": "EQBYTuYbLf8INxFtD8tQeNk5ZLy-nAX9ahQbG_yl1qQ-GEMS",
+  "points": [
+    {
+      "days": 1,
+      "lt": "107953506000005",
+      "hash": "65yevOdrw9qWj/eKPhAF3b5ly+hkZiCoRoat+q/50Vs=",
+      "utime": 1791198828
+    },
+    {
+      "days": 3,
+      "lt": "107522012000016",
+      "hash": "BImpCVtz9i51t36Tye5Qxd5k00f+1/pLhyjG+lG140g=",
+      "utime": 1791026253
+    },
+    {
+      "days": 7,
+      "lt": "106650212000005",
+      "hash": "C2GsXdvqRJZq8I2vs9BwJHRDT1LxpJxwwljNJqEq6Zc=",
+      "utime": 1790677585
+    },
+    {
+      "days": 14,
+      "lt": "105145817000005",
+      "hash": "OKLosgMJkwt5Z8PQXfjKfHV91G4xGFjcMvEDNUftgnQ=",
+      "utime": 1790076045
+    },
+    {
+      "days": 21,
+      "lt": "103623694000024",
+      "hash": "zZeC2TJ0Q+8AD3C9hHZC6+wOXYPZCN1Az3Xrqdw2arM=",
+      "utime": 1789467466
+    },
+    {
+      "days": 28,
+      "lt": "102115237000020",
+      "hash": "WSZr458at4S4C7cDUy51mSW03FOIYgCeuQ1wCNshGY0=",
+      "utime": 1788864426
+    },
+    {
+      "days": 30,
+      "lt": "101687663000005",
+      "hash": "m1PFotwTlYeE+aKcp6U+csKDmNAVxFJVc5tHFqJdp/k=",
+      "utime": 1788693493
+    },
+    {
+      "days": 35,
+      "lt": "100600622000012",
+      "hash": "JGVAz2yp+pzlk80ue3zFhKqqMUVt2R9joI6hCvk+C88=",
+      "utime": 1788258883
+    },
+    {
+      "days": 42,
+      "lt": "99091973000001",
+      "hash": "lhuAmEtL4U8iQzdgzU7WMTNXIKjrORoK5jhv12hTlBs=",
+      "utime": 1787655782
+    },
+    {
+      "days": 49,
+      "lt": "97567262000001",
+      "hash": "knFtT+rtaCLGM5AaNpHkRI8XU3VCvlSaNmgvfXelfow=",
+      "utime": 1787046634
+    },
+    {
+      "days": 60,
+      "lt": "95173626000005",
+      "hash": "Y/t0QSEwCdKk/8UC7r3rrJYDML2CHf3Z5eFU41twzSk=",
+      "utime": 1786090938
+    },
+    {
+      "days": 90,
+      "lt": "88793103000005",
+      "hash": "2PZmhdWKs4oloVgkKiK3/O/OGF82sgB3ZrNaBa/BlVo=",
+      "utime": 1783509791
+    },
+    {
+      "days": 180,
+      "lt": "69356432000005",
+      "hash": "Zhnif0mP4d5/z9wN6bY+/9ywQ+HcJzSunmIcR43i1eo=",
+      "utime": 1775734031
+    },
+    {
+      "days": 365,
+      "lt": "62279264000005",
+      "hash": "tfXtXYAz8HDk1HAAEiXtvCGQLKe1ujfuJD/+sgXzAv8=",
+      "utime": 1759749946
+    }
+  ],
+  "servers": [
+    {
+      "host": "5.9.10.47:19949",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "5.9.10.15:48014",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "135.181.177.59:53312",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "135.181.140.212:13206",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "135.181.140.221:46995",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "65.21.141.233:30131",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "65.21.141.198:47160",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "65.21.141.231:17728",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "65.21.141.197:13570",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "164.68.101.206:52995",
+      "reachable": false,
+      "results": {},
+      "deepestDays": null
+    },
+    {
+      "host": "164.68.99.144:20334",
+      "reachable": false,
+      "results": {},
+      "deepestDays": null
+    },
+    {
+      "host": "188.68.216.239:19925",
+      "reachable": false,
+      "results": {},
+      "deepestDays": null
+    },
+    {
+      "host": "51.195.189.59:19434",
+      "reachable": false,
+      "results": {},
+      "deepestDays": null
+    },
+    {
+      "host": "51.195.189.140:23067",
+      "reachable": false,
+      "results": {},
+      "deepestDays": null
+    },
+    {
+      "host": "135.181.132.198:53560",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "135.181.132.253:46529",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "ok",
+        "7": "ok",
+        "14": "ok",
+        "21": "ok",
+        "28": "ok",
+        "30": "ok",
+        "35": "ok",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "pruned",
+        "90": "pruned",
+        "180": "pruned",
+        "365": "pruned"
+      },
+      "deepestDays": 35
+    },
+    {
+      "host": "54.39.158.156:51565",
+      "reachable": false,
+      "results": {},
+      "deepestDays": null
+    },
+    {
+      "host": "185.86.79.9:4701",
+      "reachable": true,
+      "results": {
+        "1": "ok",
+        "3": "pruned",
+        "7": "pruned",
+        "14": "pruned",
+        "21": "pruned",
+        "28": "pruned",
+        "30": "pruned",
+        "35": "pruned",
+        "42": "pruned",
+        "49": "pruned",
+        "60": "ok",
+        "90": "ok",
+        "180": "ok",
+        "365": "ok"
+      },
+      "deepestDays": 365
+    }
+  ],
+  "table": "| server | 1d | 3d | 7d | 14d | 21d | 28d | 30d | 35d | 42d | 49d | 60d | 90d | 180d | 365d |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n| 5.9.10.47:19949 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 5.9.10.15:48014 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 135.181.177.59:53312 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 135.181.140.212:13206 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 135.181.140.221:46995 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 65.21.141.233:30131 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 65.21.141.198:47160 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 65.21.141.231:17728 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 65.21.141.197:13570 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 135.181.132.198:53560 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 135.181.132.253:46529 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |\n| 185.86.79.9:4701 | ✓ | · | · | · | · | · | · | · | · | · | ✓ | ✓ | ✓ | ✓ |"
+}

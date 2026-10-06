@@ -1,0 +1,86 @@
+{
+  "after-7d": {
+    "measuredAt": "2026-10-06T12:48:44.362Z",
+    "days": 7,
+    "concurrency": 64,
+    "split": true,
+    "store": "postgres",
+    "startLt": "106670287000000",
+    "seconds": 508.08110358299996,
+    "timedOut": false,
+    "txs": 709477,
+    "txPerSecond": 1396.3853309968654,
+    "calls": 67803,
+    "callsPerSecond": 133.44916691813893,
+    "callsByMethod": {
+      "getTip": 1,
+      "getAccountState": 15,
+      "getTransactions": 46256,
+      "lookupBlock": 11485,
+      "listBlockTransactions": 10046
+    },
+    "splitPoints": 108,
+    "errors": {
+      "ton_watch_errors_total{kind=\"not_ready\",where=\"getAccountState\"}": 5,
+      "ton_watch_errors_total{kind=\"not_ready\",where=\"getTransactions\"}": 7,
+      "ton_watch_errors_total{kind=\"unknown\",where=\"lookupBlock\"}": 1358,
+      "ton_watch_errors_total{kind=\"unknown\",where=\"findTxNear\"}": 81,
+      "ton_watch_errors_total{kind=\"archive_unavailable\",where=\"listBlockTransactions\"}": 223,
+      "ton_watch_errors_total{kind=\"archive_unavailable\",where=\"getTransactions\"}": 1851
+    },
+    "completeAddresses": 10,
+    "stuckRanges": 0,
+    "perAddress": [
+      {
+        "address": "0:584EE61B2DFF0837116D0FCB5078D93964BCBE9C05FD6A141B1BFCA5D6A43E18",
+        "complete": true,
+        "stuckRanges": 0
+      },
+      {
+        "address": "0:CA1D9EDEEF40B3A9DBD9082F3767859547C3CE0BF641D09D58E33A3CF06FB309",
+        "complete": true,
+        "stuckRanges": 0
+      },
+      {
+        "address": "0:92E1411AE546892F33B2C8A89EA90390D8FF4CFBB917A643B91E73F706FDB9D1",
+        "complete": true,
+        "stuckRanges": 0
+      },
+      {
+        "address": "0:C9959A997E1D4E4383D8DB37B86D2101CE78DCF1F1B3904D9888FE572EF0EFD4",
+        "complete": true,
+        "stuckRanges": 0
+      },
+      {
+        "address": "0:95E923D788FDF5EF84D8549784FF316D075E2895303CA52E4434ED16866F6D92",
+        "complete": true,
+        "stuckRanges": 0
+      },
+      {
+        "address": "0:66636FF599680ED75F20F0442AE6649D19C34228CD47EC50386815F2FEC0A386",
+        "complete": true,
+        "stuckRanges": 0
+      },
+      {
+        "address": "0:28BD1070A9F91A5F54624957C5F734CE4EE40B6E0361712A56BCC0E0A0D8C613",
+        "complete": true,
+        "stuckRanges": 0
+      },
+      {
+        "address": "0:408DA3B28B6C065A593E10391269BAAA9C5F8CAEBC0C69D9F0AABBAB2A99256B",
+        "complete": true,
+        "stuckRanges": 0
+      },
+      {
+        "address": "0:7AE5056C3FD9406F9BBBE7C7089CD4C40801D9075486CBEDB7CE12DF119EACF1",
+        "complete": true,
+        "stuckRanges": 0
+      },
+      {
+        "address": "0:9220C181A6CFEACD11B7B8F62138DF1BB9CC82B6ED2661D2F5FAEE204B3EFB20",
+        "complete": true,
+        "stuckRanges": 0
+      }
+    ]
+  }
+}

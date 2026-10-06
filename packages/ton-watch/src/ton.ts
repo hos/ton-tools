@@ -12,7 +12,7 @@ export function toRawAddress(input: string | Address): string {
 
 export function bigIntToBuffer(data: bigint | undefined, len = 64): Buffer {
   if (!data) {
-    return Buffer.from([]);
+    return Buffer.alloc(len / 2);
   }
   const hexStr = data.toString(16);
   const pad = hexStr.padStart(len, "0");
