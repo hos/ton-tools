@@ -3,6 +3,7 @@
   "exports": "./src/index.ts",
   "type": "module",
   "version": "0.0.2",
+  "license": "MIT",
   "scripts": {
     "publish": "bunx jsr publish",
     "test": "bun test",

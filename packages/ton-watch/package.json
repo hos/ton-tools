@@ -1,6 +1,7 @@
 {
   "name": "ton-watch",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Embeddable TON transaction indexer for a set of addresses: fetches from liteservers in any order, delivers in chain order, never past a gap",
   "keywords": [
     "ton",

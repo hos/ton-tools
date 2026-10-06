@@ -1,5 +1,6 @@
 {
   "name": "@ton/ls",
   "version": "0.0.3",
+  "license": "MIT",
   "exports": "./src/index.ts"
 }
