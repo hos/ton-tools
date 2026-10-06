@@ -14,18 +14,18 @@ other instances may still be running.
 - **Tamper-evident.** Each applied migration's checksum (sha256 of its statements,
   whitespace-insensitive) is stored in `<schema>.schema_migrations`. If an applied
   migration differs from the code's, `migrate()` throws `MigrationError` with code
-  `modified` and changes nothing.
+  `MIGRATION_MODIFIED` and changes nothing.
 - **Rolling deploys.** A new version migrates the schema, and old instances keep
   running until they are replaced. If an old instance restarts, its `migrate()` finds
   versions it does not know. Every migration stores `compatible_from`: the oldest
   version whose code still works with it. The old instance starts if every newer
   migration's `compatible_from` is at or below its own version. Otherwise it fails
-  with `MigrationError` code `too_new` and touches nothing. This allows expand-only
+  with `MigrationError` code `MIGRATION_TOO_NEW` and touches nothing. This allows expand-only
   changes, which old code tolerates by construction. Changes that would let old code
   silently write wrong data are refused, because a crash at startup is easier to
   recover from than corrupted data.
 - A schema whose history cannot be reconciled with the code is refused with code
-  `diverged`. That covers a pre-release schema, an unknown version below the newest
+  `MIGRATION_DIVERGED`. That covers a pre-release schema, an unknown version below the newest
   known one, and a gap in the history.
 
 ## Rules for a new migration

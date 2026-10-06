@@ -42,10 +42,16 @@ describe("ENV_VARS", () => {
     for (const { description } of ENV_VARS) expect(description.length).toBeGreaterThan(0);
   });
 
-  // Enabled after the README is updated for the TON_WATCH_ renames: the docs pass
-  // turns this into `test`.
-  test.todo("README documents every variable", () => {
+  test("README documents every variable", () => {
     const readme = readFileSync(README, "utf8");
     expect(tableNames.filter((name) => !readme.includes(name))).toEqual([]);
+  });
+
+  test("README mentions no TON_WATCH_ variable the service does not read", () => {
+    const readme = readFileSync(README, "utf8");
+    const mentioned = new Set(
+      [...readme.matchAll(/\bTON_WATCH_[A-Z0-9_]*[A-Z0-9](?![A-Z0-9_])/g)].map(([name]) => name),
+    );
+    expect([...mentioned].filter((name) => !(tableNames as string[]).includes(name))).toEqual([]);
   });
 });

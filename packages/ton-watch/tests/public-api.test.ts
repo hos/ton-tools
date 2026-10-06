@@ -105,6 +105,7 @@ describe("public API", () => {
       "./toncenter": "./src/plugins/toncenter/index.ts",
       "./parse": "./src/parse/index.ts",
       "./webhook": "./src/webhook/index.ts",
+      "./package.json": "./package.json",
     });
     expect(pkg.main).toBe("src/index.ts");
     expect(pkg.module).toBe("src/index.ts");
