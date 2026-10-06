@@ -1,4 +1,5 @@
 import type { AddressState, Gap, TxId, TxRecord } from "../core/types";
+import type { ConsumerStateStore } from "./consumer-state";
 
 /** How a store starts tracking an address. */
 export interface AddAddressOptions {
@@ -24,16 +25,17 @@ export interface StoreTransaction {
  * to know which fetch produced a transaction. `PgStore` is the reference
  * implementation, `MemoryStore` the minimal one.
  *
+ * Consumer positions, failures and dead letters are the `ConsumerStateStore` half.
  * Addresses are always raw (`<workchain>:<hex>`); `TonWatch` normalizes them.
  */
-export interface Store {
+export interface Store extends ConsumerStateStore {
   /** Creates/upgrades the schema. Idempotent. Never drops data. */
   migrate(): Promise<void>;
   close(): Promise<void>;
 
   /** Starts tracking an address. Re-activates it if it was removed; never changes its startLt. */
   addAddress(address: string, options: AddAddressOptions): Promise<void>;
-  /** Stops tracking. With `purge`, also deletes its transactions and consumer cursors. */
+  /** Stops tracking. With `purge`, also deletes its transactions, cursors and dead letters. */
   removeAddress(address: string, options?: { purge?: boolean }): Promise<void>;
   getAddress(address: string): Promise<AddressState | null>;
   listAddresses(options?: { includeInactive?: boolean }): Promise<AddressState[]>;
@@ -60,12 +62,14 @@ export interface Store {
   /** Transactions with `afterLt < lt <= uptoLt`, ascending. */
   read(address: string, afterLt: bigint, uptoLt: bigint, limit: number): Promise<TxRecord[]>;
 
-  getCursor(consumer: string, address: string): Promise<bigint | null>;
-  setCursor(consumer: string, address: string, lt: bigint): Promise<void>;
-
   /**
    * Optional: runs `fn` atomically. Consumers use it to commit the handler's own
    * writes (through `db`) together with the cursor, giving exactly-once effects.
    */
   transaction?<T>(fn: (tx: StoreTransaction) => Promise<T>): Promise<T>;
+}
+
+/** Runs `fn` in a store transaction if the store has them, otherwise directly. */
+export function runAtomically<T>(store: Store, fn: (store: Store) => Promise<T>): Promise<T> {
+  return store.transaction ? store.transaction((tx) => fn(tx.store)) : fn(store);
 }

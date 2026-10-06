@@ -1,6 +1,16 @@
 import { analyzeChain, type ChainAnalysis } from "../../core/chain";
 import type { AddressState, Gap, TxId, TxRecord } from "../../core/types";
+import type {
+  Backlog,
+  ConsumerLock,
+  ConsumerOrder,
+  ConsumerRecord,
+  CursorState,
+  DeadLetter,
+  DeadLetterFilter,
+} from "../consumer-state";
 import type { AddAddressOptions, Store } from "../store";
+import { MemoryConsumerState } from "./memory-consumer-state";
 
 interface AddressEntry {
   state: AddressState;
@@ -11,12 +21,17 @@ interface AddressEntry {
 
 const DEFAULT_GAP_LIMIT = 100;
 
-const cursorKey = (consumer: string, address: string) => `${consumer}|${address}`;
-
 /** In-process store. Useful for tests, benchmarks, and short-lived tools. */
 export class MemoryStore implements Store {
   private readonly entries = new Map<string, AddressEntry>();
-  private readonly cursors = new Map<string, bigint>();
+  private readonly consumerState = new MemoryConsumerState({
+    deliverable: (address, afterLt) => {
+      const entry = this.entries.get(address);
+      if (!entry?.state.active) return null;
+      const uptoLt = entry.state.frontier?.lt ?? entry.state.startLt;
+      return this.sorted(entry).filter((tx) => tx.lt > afterLt && tx.lt <= uptoLt);
+    },
+  });
 
   async migrate(): Promise<void> {}
   async close(): Promise<void> {}
@@ -45,9 +60,7 @@ export class MemoryStore implements Store {
   async removeAddress(address: string, options?: { purge?: boolean }): Promise<void> {
     if (options?.purge) {
       this.entries.delete(address);
-      for (const key of this.cursors.keys()) {
-        if (key.endsWith(`|${address}`)) this.cursors.delete(key);
-      }
+      this.consumerState.forgetAddress(address);
       return;
     }
     const entry = this.entries.get(address);
@@ -111,12 +124,53 @@ export class MemoryStore implements Store {
     return result;
   }
 
-  async getCursor(consumer: string, address: string): Promise<bigint | null> {
-    return this.cursors.get(cursorKey(consumer, address)) ?? null;
+  getCursor(consumer: string, address: string): Promise<bigint | null> {
+    return this.consumerState.getCursor(consumer, address);
   }
 
-  async setCursor(consumer: string, address: string, lt: bigint): Promise<void> {
-    this.cursors.set(cursorKey(consumer, address), lt);
+  setCursor(consumer: string, address: string, lt: bigint): Promise<void> {
+    return this.consumerState.setCursor(consumer, address, lt);
+  }
+
+  listCursors(consumer?: string): Promise<CursorState[]> {
+    return this.consumerState.listCursors(consumer);
+  }
+
+  recordFailure(consumer: string, address: string, error: string): Promise<CursorState | null> {
+    return this.consumerState.recordFailure(consumer, address, error);
+  }
+
+  saveConsumer(name: string, order: ConsumerOrder): Promise<void> {
+    return this.consumerState.saveConsumer(name, order);
+  }
+
+  listConsumers(): Promise<ConsumerRecord[]> {
+    return this.consumerState.listConsumers();
+  }
+
+  deleteConsumer(name: string): Promise<void> {
+    return this.consumerState.deleteConsumer(name);
+  }
+
+  putDeadLetter(letter: DeadLetter): Promise<void> {
+    return this.consumerState.putDeadLetter(letter);
+  }
+
+  listDeadLetters(filter?: DeadLetterFilter): Promise<DeadLetter[]> {
+    return this.consumerState.listDeadLetters(filter);
+  }
+
+  deleteDeadLetter(consumer: string, address: string, lt: bigint): Promise<boolean> {
+    return this.consumerState.deleteDeadLetter(consumer, address, lt);
+  }
+
+  backlog(consumer: string, uptoLt?: bigint): Promise<Backlog[]> {
+    return this.consumerState.backlog(consumer, uptoLt);
+  }
+
+  /** In-process only: another `Consumer` of the same name on this store is refused. */
+  lockConsumer(name: string): Promise<ConsumerLock | null> {
+    return this.consumerState.lockConsumer(name);
   }
 
   /** Number of stored transactions (all addresses). */

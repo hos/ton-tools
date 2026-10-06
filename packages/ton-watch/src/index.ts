@@ -9,11 +9,20 @@
  */
 
 export { Consumer, type ConsumerDeps } from "./consumer/consumer";
+export { ConsumerLockedError } from "./consumer/errors";
 export type {
+  AddressLag,
+  ConsumerEventMap,
+  ConsumerLag,
   ConsumerStatus,
   ConsumerWakeEvents,
+  FailurePolicy,
   HandlerContext,
+  HandlerFailure,
+  LockMode,
   ProcessOptions,
+  RewindOptions,
+  RewindTarget,
   TxHandler,
 } from "./consumer/types";
 export { analyzeChain, type ChainAnalysis, validatePage } from "./core/chain";
@@ -43,8 +52,23 @@ export {
   type ServerStats,
 } from "./source/liteserver/server-pool";
 export type { BlockRef, ChainTip, ShardTop, TxSource } from "./source/source";
+export type {
+  Backlog,
+  ConsumerLock,
+  ConsumerOrder,
+  ConsumerRecord,
+  ConsumerStateStore,
+  CursorState,
+  DeadLetter,
+  DeadLetterFilter,
+} from "./stores/consumer-state";
 export { MemoryStore } from "./stores/memory/memory-store";
-export { type PgDatabase, type PgQueryable, poolDatabase } from "./stores/pg/database";
+export {
+  type PgDatabase,
+  type PgQueryable,
+  type PgSession,
+  poolDatabase,
+} from "./stores/pg/database";
 export { PgStore, type PgStoreOptions } from "./stores/pg/pg-store";
 export type {
   AddAddressOptions as StoreAddAddressOptions,

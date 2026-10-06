@@ -1,9 +1,20 @@
 import type { Pool } from "pg";
 
 import type { AddressState, Gap, TxId, TxRecord } from "../../core/types";
+import type {
+  Backlog,
+  ConsumerLock,
+  ConsumerOrder,
+  ConsumerRecord,
+  CursorState,
+  DeadLetter,
+  DeadLetterFilter,
+} from "../consumer-state";
 import type { AddAddressOptions, Store, StoreTransaction } from "../store";
+import { acquireConsumerLock } from "./consumer-lock";
 import { type PgDatabase, type PgQueryable, poolDatabase } from "./database";
 import { migrations, SCHEMA_PLACEHOLDER } from "./migrations";
+import { PgConsumerState } from "./pg-consumer-state";
 
 export interface PgStoreOptions {
   /** Postgres schema holding the tables. Created if missing. Default `ton_watch`. */
@@ -97,6 +108,7 @@ export class PgStore implements Store {
   readonly schema: string;
   private readonly quotedSchema: string;
   private readonly onClose?: () => Promise<void>;
+  private readonly consumerState = new PgConsumerState((sql, params) => this.query(sql, params));
 
   constructor(db: Pool | PgDatabase, options: PgStoreOptions = {}) {
     this.db = "transaction" in db ? db : poolDatabase(db);
@@ -192,6 +204,9 @@ export class PgStore implements Store {
        from a, unnest($2::bigint[], $3::text[], $4::bigint[], $5::text[], $6::bigint[], $7::text[])
          as u(lt, hash, prev_lt, prev_hash, utime, boc)
        where u.lt > a.start_lt
+       -- One key order for every writer: overlapping concurrent writes then wait on
+       -- each other instead of deadlocking.
+       order by u.lt
        on conflict do nothing
        returning lt`,
       [
@@ -284,22 +299,56 @@ export class PgStore implements Store {
     }));
   }
 
-  async getCursor(consumer: string, address: string): Promise<bigint | null> {
-    const [row] = await this.query<{ lt: string }>(
-      `select c.lt::text from $S.cursors c join $S.addresses a on a.id = c.address_id
-       where c.consumer = $1 and a.address = $2`,
-      [consumer, address],
-    );
-    return row ? BigInt(row.lt) : null;
+  getCursor(consumer: string, address: string): Promise<bigint | null> {
+    return this.consumerState.getCursor(consumer, address);
   }
 
-  async setCursor(consumer: string, address: string, lt: bigint): Promise<void> {
-    await this.query(
-      `insert into $S.cursors (consumer, address_id, lt)
-       select $1, id, $3 from $S.addresses where address = $2
-       on conflict (consumer, address_id) do update set lt = excluded.lt, updated_at = now()`,
-      [consumer, address, lt.toString()],
-    );
+  setCursor(consumer: string, address: string, lt: bigint): Promise<void> {
+    return this.consumerState.setCursor(consumer, address, lt);
+  }
+
+  listCursors(consumer?: string): Promise<CursorState[]> {
+    return this.consumerState.listCursors(consumer);
+  }
+
+  recordFailure(consumer: string, address: string, error: string): Promise<CursorState | null> {
+    return this.consumerState.recordFailure(consumer, address, error);
+  }
+
+  saveConsumer(name: string, order: ConsumerOrder): Promise<void> {
+    return this.consumerState.saveConsumer(name, order);
+  }
+
+  listConsumers(): Promise<ConsumerRecord[]> {
+    return this.consumerState.listConsumers();
+  }
+
+  deleteConsumer(name: string): Promise<void> {
+    return this.consumerState.deleteConsumer(name);
+  }
+
+  putDeadLetter(letter: DeadLetter): Promise<void> {
+    return this.consumerState.putDeadLetter(letter);
+  }
+
+  listDeadLetters(filter?: DeadLetterFilter): Promise<DeadLetter[]> {
+    return this.consumerState.listDeadLetters(filter);
+  }
+
+  deleteDeadLetter(consumer: string, address: string, lt: bigint): Promise<boolean> {
+    return this.consumerState.deleteDeadLetter(consumer, address, lt);
+  }
+
+  backlog(consumer: string, uptoLt?: bigint): Promise<Backlog[]> {
+    return this.consumerState.backlog(consumer, uptoLt);
+  }
+
+  /**
+   * Session-level advisory lock keyed on (schema, consumer name), held on a
+   * dedicated connection (one pool client per running consumer) until released.
+   */
+  lockConsumer(name: string): Promise<ConsumerLock | null> {
+    return acquireConsumerLock(this.db, this.schema, name);
   }
 
   async transaction<T>(fn: (tx: StoreTransaction) => Promise<T>): Promise<T> {

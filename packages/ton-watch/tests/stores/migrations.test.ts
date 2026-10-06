@@ -11,6 +11,10 @@ const ALL = (1n << 63n) - 1n;
 
 /** Snapshot of the real migration list; tests that append to it restore it. */
 const original = [...migrations];
+/** `version:name` of every real migration, as `versions()` lists them. */
+const CURRENT = original.map((m) => `${m.version}:${m.name}`);
+/** Version a test-only migration appended to the real ones gets. */
+const NEXT = original.length + 1;
 afterEach(() => {
   migrations.splice(0, migrations.length, ...original);
 });
@@ -75,11 +79,13 @@ describe("PgStore.migrate (PGlite)", () => {
     await new PgStore(db).migrate();
     expect(await tables(db, "ton_watch")).toEqual([
       "addresses",
+      "consumers",
       "cursors",
+      "dead_letters",
       "schema_migrations",
       "transactions",
     ]);
-    expect(await versions(db)).toEqual(["1:initial"]);
+    expect(await versions(db)).toEqual(["1:initial", "2:consumer_state"]);
   });
 
   test("running three times, sequentially and concurrently, applies each migration once", async () => {
@@ -89,7 +95,7 @@ describe("PgStore.migrate (PGlite)", () => {
     const chain = await seed(store);
     await store.migrate();
     await Promise.all(Array.from({ length: 5 }, () => new PgStore(db, { schema }).migrate()));
-    expect(await versions(db, schema)).toEqual(["1:initial"]);
+    expect(await versions(db, schema)).toEqual(CURRENT);
     expect((await store.read(A, 0n, ALL, 100)).length).toBe(chain.txs(A).length);
     expect(await store.getCursor("c", A)).toBe(chain.txs(A)[1]!.lt);
   });
@@ -97,7 +103,7 @@ describe("PgStore.migrate (PGlite)", () => {
   test("concurrent first-time migrations of one fresh schema", async () => {
     const schema = fresh();
     await Promise.all(Array.from({ length: 5 }, () => new PgStore(db, { schema }).migrate()));
-    expect(await versions(db, schema)).toEqual(["1:initial"]);
+    expect(await versions(db, schema)).toEqual(CURRENT);
   });
 
   test("reserved-word and underscore schema names work and stay isolated", async () => {
@@ -128,7 +134,7 @@ describe("PgStore.migrate (PGlite)", () => {
     const chain = await seed(store);
 
     migrations.push({
-      version: 2,
+      version: NEXT,
       name: "add_note",
       up: [
         `alter table $S.addresses add column note text not null default 'v2'`,
@@ -136,11 +142,11 @@ describe("PgStore.migrate (PGlite)", () => {
       ],
     });
     await new PgStore(db, { schema }).migrate();
-    expect(await versions(db, schema)).toEqual(["1:initial", "2:add_note"]);
+    expect(await versions(db, schema)).toEqual([...CURRENT, `${NEXT}:add_note`]);
     expect((await db.query(`select note from ${schema}.addresses`)).rows).toEqual([{ note: "v2" }]);
     expect((await store.read(A, 0n, ALL, 100)).length).toBe(chain.txs(A).length);
     expect((await store.getAddress(A))?.frontier?.lt).toBe(chain.txs(A).at(-1)!.lt);
-    // Running again with v2 present is a no-op (would fail if re-applied).
+    // Running again with the new migration present is a no-op (would fail if re-applied).
     await store.migrate();
   });
 
@@ -151,7 +157,7 @@ describe("PgStore.migrate (PGlite)", () => {
     await seed(store);
 
     const broken = {
-      version: 2,
+      version: NEXT,
       name: "broken",
       up: [
         `alter table $S.addresses add column partial text`,
@@ -160,7 +166,7 @@ describe("PgStore.migrate (PGlite)", () => {
     };
     migrations.push(broken);
     await expect(store.migrate()).rejects.toThrow();
-    expect(await versions(db, schema)).toEqual(["1:initial"]);
+    expect(await versions(db, schema)).toEqual(CURRENT);
     const cols = await db.query(
       `select column_name from information_schema.columns
        where table_schema = $1 and table_name = 'addresses' and column_name = 'partial'`,
@@ -172,28 +178,31 @@ describe("PgStore.migrate (PGlite)", () => {
 
     broken.up[1] = `create index addresses_partial on $S.addresses (partial)`;
     await store.migrate();
-    expect(await versions(db, schema)).toEqual(["1:initial", "2:broken"]);
+    expect(await versions(db, schema)).toEqual([...CURRENT, `${NEXT}:broken`]);
   });
 
   test("a schema migrated by an older version (v1 only) upgrades over several steps", async () => {
     const schema = fresh();
+    migrations.splice(1);
     await new PgStore(db, { schema }).migrate();
+    expect(await versions(db, schema)).toEqual(["1:initial"]);
+    migrations.splice(1, 0, ...original.slice(1));
     migrations.push(
-      { version: 2, name: "two", up: [`create table $S.extra_two (id int)`] },
-      { version: 3, name: "three", up: [`insert into $S.extra_two values (3)`] },
+      { version: NEXT, name: "two", up: [`create table $S.extra_two (id int)`] },
+      { version: NEXT + 1, name: "three", up: [`insert into $S.extra_two values (3)`] },
     );
     await new PgStore(db, { schema }).migrate();
-    expect(await versions(db, schema)).toEqual(["1:initial", "2:two", "3:three"]);
+    expect(await versions(db, schema)).toEqual([...CURRENT, `${NEXT}:two`, `${NEXT + 1}:three`]);
     expect((await db.query(`select id from ${schema}.extra_two`)).rows).toEqual([{ id: 3 }]);
   });
 
   test("schemas upgrade independently", async () => {
     const [x, y] = [fresh(), fresh()];
     await new PgStore(db, { schema: x }).migrate();
-    migrations.push({ version: 2, name: "two", up: [`create table $S.extra (id int)`] });
+    migrations.push({ version: NEXT, name: "two", up: [`create table $S.extra (id int)`] });
     await new PgStore(db, { schema: y }).migrate();
-    expect(await versions(db, x)).toEqual(["1:initial"]);
-    expect(await versions(db, y)).toEqual(["1:initial", "2:two"]);
+    expect(await versions(db, x)).toEqual(CURRENT);
+    expect(await versions(db, y)).toEqual([...CURRENT, `${NEXT}:two`]);
   });
 });
 

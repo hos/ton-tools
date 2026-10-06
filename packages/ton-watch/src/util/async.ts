@@ -26,3 +26,14 @@ export async function mapConcurrent<T, R>(
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
   return results;
 }
+
+/** Runs tasks one at a time, in the order they were queued; a failure does not stop the queue. */
+export class SerialQueue {
+  private tail: Promise<unknown> = Promise.resolve();
+
+  run<T>(task: () => Promise<T>): Promise<T> {
+    const result = this.tail.then(task);
+    this.tail = result.catch(() => {});
+    return result;
+  }
+}

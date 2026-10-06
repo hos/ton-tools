@@ -90,3 +90,13 @@ export function completeUpTo(state: AddressState): bigint {
   const frontierLt = state.frontier?.lt ?? state.startLt;
   return frontierLt > state.syncedLt ? frontierLt : state.syncedLt;
 }
+
+/** The lowest `completeUpTo` among `states`: every transaction at or below it is stored. Null if empty. */
+export function watermarkOf(states: readonly AddressState[]): bigint | null {
+  let lowest: bigint | null = null;
+  for (const state of states) {
+    const lt = completeUpTo(state);
+    if (lowest === null || lt < lowest) lowest = lt;
+  }
+  return lowest;
+}

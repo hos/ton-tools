@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 
 import { MemoryStore } from "../../src/stores/memory/memory-store";
+import { migrations } from "../../src/stores/pg/migrations";
 import { PgStore } from "../../src/stores/pg/pg-store";
 import type { Store } from "../../src/stores/store";
 import { FakeChain, fakeAddress, rng } from "../fixtures/fake-chain";
@@ -218,7 +219,7 @@ describe("PgStore migrations", () => {
     const { rows } = await db.query<{ version: number }>(
       `select version from ton_watch.schema_migrations`,
     );
-    expect(rows.map((r) => r.version)).toEqual([1]);
+    expect(rows.map((r) => r.version)).toEqual(migrations.map((m) => m.version));
   });
 
   test("custom schema isolates tables", async () => {

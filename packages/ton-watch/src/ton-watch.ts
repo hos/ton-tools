@@ -1,12 +1,22 @@
 import { Consumer } from "./consumer/consumer";
-import type { ProcessOptions, TxHandler } from "./consumer/types";
+import { rewindCursors } from "./consumer/cursors";
+import { measureLag } from "./consumer/lag";
+import { withConsumerLock } from "./consumer/lock";
+import type {
+  ConsumerLag,
+  ProcessOptions,
+  RewindOptions,
+  RewindTarget,
+  TxHandler,
+} from "./consumer/types";
 import { toRawAddress } from "./core/address";
-import { type AddressState, completeUpTo } from "./core/types";
+import { type AddressState, watermarkOf } from "./core/types";
 import { Indexer } from "./indexer/indexer";
 import type { IndexerOptions } from "./indexer/options";
 import type { AddressStatus } from "./indexer/status";
 import { Metrics } from "./metrics/metrics";
 import type { TxSource } from "./source/source";
+import type { ConsumerRecord, DeadLetter, DeadLetterFilter } from "./stores/consumer-state";
 import type { Store } from "./stores/store";
 import { consoleLogger, type Logger } from "./util/logger";
 
@@ -60,7 +70,7 @@ export class TonWatch {
   readonly indexer: Indexer;
   readonly metrics: Metrics;
   private readonly logger: Logger;
-  private readonly consumers = new Set<Consumer>();
+  private readonly registered = new Set<Consumer>();
   private readonly shouldMigrate: boolean;
   private started = false;
   private migrated = false;
@@ -81,19 +91,28 @@ export class TonWatch {
     this.migrated = true;
   }
 
-  /** Starts indexing and every consumer registered with `process()`. */
+  /**
+   * Starts every consumer registered with `process()`, then indexing. Rejects with
+   * `ConsumerLockedError` (and starts nothing) if a consumer runs elsewhere.
+   */
   async start(): Promise<void> {
     if (this.started) return;
     await this.init();
+    const consumers = [...this.registered];
+    try {
+      await Promise.all(consumers.map((consumer) => consumer.start().ready()));
+    } catch (error) {
+      await Promise.all(consumers.map((consumer) => consumer.stop()));
+      throw error;
+    }
     this.started = true;
     this.indexer.start();
-    for (const consumer of this.consumers) consumer.start();
   }
 
   /** Graceful stop: consumers finish their current transaction, in-flight fetches complete. */
   async stop({ closeSource = true, closeStore = true } = {}): Promise<void> {
     this.started = false;
-    await Promise.all([...this.consumers].map((consumer) => consumer.stop()));
+    await Promise.all([...this.registered].map((consumer) => consumer.stop()));
     await this.indexer.stop();
     if (closeSource) await this.source.close?.();
     if (closeStore) await this.store.close();
@@ -132,9 +151,11 @@ export class TonWatch {
   /**
    * Delivers transactions to `handler` in chain order. `name` identifies the
    * consumer's stored position: reuse it to resume, change it to start over.
-   * Run each consumer name in one process at a time.
+   * One instance per name delivers at a time (see `ProcessOptions.lock`); when
+   * registered after `start()`, await `consumer.ready()` to learn if it got the lock.
    */
   process(name: string, handler: TxHandler, options: ProcessOptions = {}): Consumer {
+    if (this.consumerNamed(name)) throw new Error(`consumer ${name} is already registered`);
     const consumer = new Consumer(
       name,
       this.store,
@@ -142,9 +163,70 @@ export class TonWatch {
       { ...options, addresses: options.addresses?.map(toRawAddress) },
       { events: this.indexer, logger: this.logger, metrics: this.metrics },
     );
-    this.consumers.add(consumer);
+    this.registered.add(consumer);
     if (this.started) consumer.start();
     return consumer;
+  }
+
+  private consumerNamed(name: string): Consumer | undefined {
+    return [...this.registered].find((consumer) => consumer.name === name);
+  }
+
+  /** Every consumer the store knows (also ones run by other processes), with its cursors. */
+  consumers(): Promise<ConsumerRecord[]> {
+    return this.store.listConsumers();
+  }
+
+  /** How far a consumer is behind (see `ConsumerLag`); it need not run in this process. */
+  async consumerLag(name: string): Promise<ConsumerLag> {
+    const local = this.consumerNamed(name);
+    if (local) return local.lag();
+    const record = (await this.store.listConsumers()).find((consumer) => consumer.name === name);
+    if (!record) throw new Error(`unknown consumer ${name}`);
+    return measureLag(this.store, name, record.order ?? "address");
+  }
+
+  /**
+   * Moves a consumer's cursors to `to`: `"start"` (redeliver everything), `"now"`
+   * (skip to each frontier) or an lt (deliver what comes after it). A consumer
+   * registered here applies it between rounds; one running in another process
+   * makes this reject with `ConsumerLockedError`.
+   */
+  async rewindConsumer(name: string, to: RewindTarget, options: RewindOptions = {}): Promise<void> {
+    const addresses = options.addresses?.map(toRawAddress);
+    const local = this.consumerNamed(name);
+    if (local) return local.rewind(to, { addresses });
+    await withConsumerLock(this.store, name, () => rewindCursors(this.store, name, to, addresses));
+  }
+
+  /**
+   * Deletes a consumer's record, cursors and dead letters; it starts over under the
+   * same name. Rejects with `ConsumerLockedError` while it runs anywhere, and if it
+   * is registered in this process.
+   */
+  async deleteConsumer(name: string): Promise<void> {
+    if (this.consumerNamed(name)) {
+      throw new Error(`consumer ${name} is registered in this process; delete it from another`);
+    }
+    await withConsumerLock(this.store, name, () => this.store.deleteConsumer(name));
+  }
+
+  /** Dead letters of every consumer, or as filtered; oldest first. */
+  deadLetters(filter: DeadLetterFilter = {}): Promise<DeadLetter[]> {
+    const address = filter.address === undefined ? undefined : toRawAddress(filter.address);
+    return this.store.listDeadLetters({ ...filter, address });
+  }
+
+  /** Deletes a dead letter without redelivering it. False if there was none. */
+  resolveDeadLetter(consumer: string, address: string, lt: bigint): Promise<boolean> {
+    return this.store.deleteDeadLetter(consumer, toRawAddress(address), lt);
+  }
+
+  /** Redelivers a dead letter through a consumer registered here (see `Consumer.replayDeadLetter`). */
+  replayDeadLetter(consumer: string, address: string, lt: bigint): Promise<void> {
+    const local = this.consumerNamed(consumer);
+    if (!local) throw new Error(`consumer ${consumer} is not registered in this process`);
+    return local.replayDeadLetter(toRawAddress(address), lt);
   }
 
   /**
@@ -156,8 +238,7 @@ export class TonWatch {
     const states = (await this.store.listAddresses()).filter(
       (state) => !only || only.has(state.address),
     );
-    if (states.length === 0) return null;
-    return states.map(completeUpTo).reduce((min, lt) => (lt < min ? lt : min));
+    return watermarkOf(states);
   }
 
   status(): AddressStatus[] {
