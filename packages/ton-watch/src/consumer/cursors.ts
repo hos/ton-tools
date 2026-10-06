@@ -1,9 +1,10 @@
+import { TonWatchError } from "../core/errors";
 import type { AddressState } from "../core/types";
 import { runAtomically, type Store } from "../stores/store";
 import type { RewindTarget } from "./types";
 
 function targetLt(state: AddressState, to: RewindTarget): bigint {
-  if (to === "start") return state.startLt;
+  if (to === "earliest") return state.startLt;
   if (to === "now") return state.frontier?.lt ?? state.startLt;
   return to;
 }
@@ -14,8 +15,8 @@ function targetLt(state: AddressState, to: RewindTarget): bigint {
  * their failure counts; dead letters are kept. Resolves to the number moved.
  * The caller makes sure the consumer is not delivering meanwhile.
  */
-export async function rewindCursors(
-  store: Store,
+export async function rewindCursors<Db>(
+  store: Store<Db>,
   consumer: string,
   to: RewindTarget,
   addresses?: readonly string[],
@@ -28,7 +29,7 @@ export async function rewindCursors(
   );
   const moves = [...targets].map((address) => {
     const state = states.get(address);
-    if (!state) throw new Error(`unknown address ${address}`);
+    if (!state) throw new TonWatchError("UNKNOWN_ADDRESS", `unknown address ${address}`);
     return { address, lt: targetLt(state, to) };
   });
   await runAtomically(store, async (tx) => {

@@ -1,6 +1,7 @@
-import { LiteClient, LiteSingleEngine } from "ton-lite-client";
+import { LiteClient } from "ton-lite-client";
 import { delay } from "./delay.ts";
 import { intToIP } from "./ip.ts";
+import { LiteConnection } from "./lite-connection.ts";
 
 /**
  * Represents a server definition.
@@ -183,78 +184,67 @@ export async function filterLiteServers(
 }
 
 /**
- * Performs benchmarking on the provided LiteServer.
+ * Performs benchmarking on the provided LiteServer: `getMasterchainInfo()` up to 100
+ * times, or until `timeout` ms passed. The connection is always closed before this
+ * resolves, so nothing is left running.
  * @param ls - The LiteServer config.
  * @param timeout - The timeout value for the benchmark.
- * @returns A promise that resolves to the benchmark result.
+ * @returns A promise that resolves to the benchmark result; `fulfilled` is true when
+ * all 100 calls were made before the timeout.
  */
 export async function benchmark(ls: LsConfigResolved, timeout: number): Promise<ServerBenchmark> {
-  // biome-ignore lint/suspicious/noAsyncPromiseExecutor: the timeout and the probe loop race to resolve; kept as-is in this published package.
-  return new Promise<ServerBenchmark>(async (resolve) => {
-    const benchmarkStart = Date.now();
-    const state: ServerBenchmark = {
-      fulfilled: false,
-      successCount: 0,
-      errorCount: 0,
-      timings: [] as number[],
-      seqnos: [] as number[],
-      avgTiming: 0,
-    };
+  const benchmarkStart = Date.now();
+  const state: ServerBenchmark = {
+    fulfilled: false,
+    successCount: 0,
+    errorCount: 0,
+    timings: [],
+    seqnos: [],
+    avgTiming: 0,
+  };
 
-    setTimeout(() => {
-      const avgTiming = state.timings.reduce((acc, curr) => acc + curr, 0);
-      if (!state.fulfilled) {
-        resolve({
-          ...state,
-          avgTiming: avgTiming / state.timings.length,
-        });
-      }
-      state.fulfilled = true;
+  const engine = new LiteConnection({ host: ls.host, publicKey: ls.publicKey });
+  const client = new LiteClient({ engine });
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      resolve();
     }, timeout);
+  });
 
-    const engine = new LiteSingleEngine({
-      host: ls.host,
-      publicKey: ls.publicKey,
-    });
-
-    engine.on("error", () => {});
-    const lc = new LiteClient({ engine });
-
-    for (let i = 0; i < 100; i++) {
-      if (state.fulfilled) {
-        return;
-      }
-      try {
-        if (!lc.engine.isReady()) {
-          state.errorCount++;
-          await delay(100);
-          continue;
-        }
-
-        const start = Date.now();
-        state.readyIn = state.readyIn || Date.now() - benchmarkStart;
-        const date = await lc.getMasterchainInfo();
-
-        state.seqnos.push(date.last.seqno);
-        state.successCount++;
-
-        state.timings.push(Date.now() - start);
-      } catch (e) {
+  const probe = async () => {
+    for (let i = 0; i < 100 && !timedOut; i++) {
+      if (!engine.isReady()) {
         state.errorCount++;
-
-        if (e instanceof Error && e.message.includes("Engine is closed")) {
-          await delay(100);
-        }
+        await delay(100);
+        continue;
+      }
+      const start = Date.now();
+      state.readyIn = state.readyIn || start - benchmarkStart;
+      try {
+        const info = await client.getMasterchainInfo();
+        if (timedOut) return;
+        state.seqnos.push(info.last.seqno);
+        state.successCount++;
+        state.timings.push(Date.now() - start);
+      } catch {
+        if (!timedOut) state.errorCount++;
       }
     }
+    state.fulfilled = !timedOut;
+  };
 
-    const avgTiming = state.timings.reduce((acc, curr) => acc + curr, 0);
+  try {
+    await Promise.race([probe(), deadline]);
+  } finally {
+    timedOut = true;
+    clearTimeout(timer);
+    // Rejects the call still in flight, which ends the probe loop.
+    engine.close();
+  }
 
-    state.fulfilled = true;
-
-    resolve({
-      ...state,
-      avgTiming: avgTiming / state.timings.length,
-    });
-  });
+  const totalTiming = state.timings.reduce((acc, curr) => acc + curr, 0);
+  return { ...state, avgTiming: totalTiming / state.timings.length };
 }

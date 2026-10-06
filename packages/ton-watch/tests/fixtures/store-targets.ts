@@ -23,6 +23,10 @@ export interface StoreTarget {
   singleSession: boolean;
 }
 
+/** The database a `PgStore` runs on: private in the API, tests reach in for raw SQL. */
+export const pgDatabaseOf = (store: PgStore): PgDatabase =>
+  (store as unknown as { db: PgDatabase }).db;
+
 let seq = 0;
 const freshSchema = (prefix: string) => `${prefix}_${process.pid}_${seq++}`;
 

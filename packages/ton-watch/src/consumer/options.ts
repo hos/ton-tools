@@ -1,10 +1,10 @@
-import { assertPositiveInteger } from "../util/validate";
+import { assertPositiveInteger, invalidOption } from "../util/validate";
 import type { ProcessOptions } from "./types";
 
 export type ConsumerSettings = Required<Omit<ProcessOptions, "addresses">>;
 
 const DEFAULT_SETTINGS: ConsumerSettings = {
-  from: "start",
+  from: "earliest",
   order: "address",
   batchSize: 100,
   concurrency: 8,
@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS: ConsumerSettings = {
 const FAILURE_POLICIES = new Set(["retry", "skip", "dead-letter"]);
 const LOCK_MODES = new Set(["fail", "wait"]);
 
-/** Options with defaults applied. Throws on a value that would silently do nothing useful. */
+/** Options with defaults applied. Throws `INVALID_OPTION` on a value that would silently do nothing useful. */
 export function resolveSettings(options: ProcessOptions): ConsumerSettings {
   const settings: ConsumerSettings = { ...DEFAULT_SETTINGS };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof ConsumerSettings)[]) {
@@ -31,16 +31,24 @@ export function resolveSettings(options: ProcessOptions): ConsumerSettings {
   assertPositiveInteger("batchSize", settings.batchSize);
   assertPositiveInteger("concurrency", settings.concurrency);
   assertPositiveInteger("maxAttempts", settings.maxAttempts);
+  const { from, order } = settings;
+  if (from !== "earliest" && from !== "now" && typeof from !== "bigint") {
+    throw invalidOption("from", `must be "earliest", "now" or an lt, got ${String(from)}`);
+  }
+  if (order !== "address" && order !== "global") {
+    throw invalidOption("order", `must be "address" or "global", got ${String(order)}`);
+  }
   if (!FAILURE_POLICIES.has(settings.onError)) {
-    throw new RangeError(
-      `onError must be "retry", "skip" or "dead-letter", got ${settings.onError}`,
+    throw invalidOption(
+      "onError",
+      `must be "retry", "skip" or "dead-letter", got ${settings.onError}`,
     );
   }
   if (typeof settings.isRetryable !== "function") {
-    throw new TypeError("isRetryable must be a function");
+    throw invalidOption("isRetryable", "must be a function");
   }
   if (!LOCK_MODES.has(settings.lock)) {
-    throw new RangeError(`lock must be "fail" or "wait", got ${settings.lock}`);
+    throw invalidOption("lock", `must be "fail" or "wait", got ${settings.lock}`);
   }
   assertDuration("pollMs", settings.pollMs, 1);
   assertDuration("retryMinMs", settings.retryMinMs, 0);
@@ -52,6 +60,6 @@ export function resolveSettings(options: ProcessOptions): ConsumerSettings {
 /** Throws unless `value` is a finite number of milliseconds of at least `min`. */
 function assertDuration(name: string, value: number, min: number): void {
   if (typeof value !== "number" || !Number.isFinite(value) || value < min) {
-    throw new RangeError(`${name} must be a finite number of ms, at least ${min}; got ${value}`);
+    throw invalidOption(name, `must be a finite number of ms, at least ${min}; got ${value}`);
   }
 }

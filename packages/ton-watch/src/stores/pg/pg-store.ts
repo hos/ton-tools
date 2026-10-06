@@ -1,6 +1,8 @@
 import type { Pool } from "pg";
 
+import { toRawAddress } from "../../core/address";
 import type { AddressState, Gap, TxId, TxRecord } from "../../core/types";
+import { invalidOption } from "../../util/validate";
 import type {
   Backlog,
   ConsumerLock,
@@ -13,7 +15,8 @@ import type {
 import type { AddAddressOptions, Store, StoreTransaction } from "../store";
 import { acquireConsumerLock } from "./consumer-lock";
 import { type PgDatabase, type PgQueryable, poolDatabase } from "./database";
-import { migrations, SCHEMA_PLACEHOLDER } from "./migrations";
+import { SCHEMA_PLACEHOLDER } from "./migrations";
+import { migrateSchema } from "./migrator";
 import { PgConsumerState } from "./pg-consumer-state";
 
 export interface PgStoreOptions {
@@ -102,10 +105,17 @@ const FROM_UNLINKED = `
       where p.address_id = a.id and p.lt = t.prev_lt and p.hash = t.prev_hash
     )`;
 
-/** Postgres store, the reference implementation. Works with `pg` and PGlite. */
-export class PgStore implements Store {
-  readonly db: PgDatabase;
+/**
+ * Postgres store, the reference implementation. Works with a `pg` `Pool` and with
+ * PGlite (or anything else shaped like `PgDatabase`).
+ *
+ * Consumer handlers receive the open transaction as `ctx.db` (a `PgQueryable`):
+ * write your own effects through it and they commit together with the cursor.
+ */
+export class PgStore implements Store<PgQueryable> {
+  /** Postgres schema holding the tables. */
   readonly schema: string;
+  private readonly db: PgDatabase;
   private readonly quotedSchema: string;
   private readonly onClose?: () => Promise<void>;
   private readonly consumerState = new PgConsumerState((sql, params) => this.query(sql, params));
@@ -114,8 +124,9 @@ export class PgStore implements Store {
     this.db = "transaction" in db ? db : poolDatabase(db);
     this.schema = options.schema ?? DEFAULT_SCHEMA;
     if (!SCHEMA_NAME.test(this.schema) || this.schema.length > MAX_SCHEMA_LENGTH) {
-      throw new Error(
-        `invalid schema name: ${this.schema} (lowercase letters, digits and _, at most ${MAX_SCHEMA_LENGTH})`,
+      throw invalidOption(
+        "schema",
+        `must be lowercase letters, digits and _, at most ${MAX_SCHEMA_LENGTH}; got ${this.schema}`,
       );
     }
     this.quotedSchema = `"${this.schema}"`;
@@ -124,30 +135,12 @@ export class PgStore implements Store {
 
   /**
    * Creates the schema and applies pending migrations. Safe to run from several
-   * processes at once: everything happens under one advisory lock, because
-   * `create ... if not exists` alone races on a fresh database.
+   * processes at once. Throws `MigrationError` instead of touching a schema whose
+   * history does not match this version's: an edited migration, or a schema
+   * migrated by a newer ton-watch that marked its changes incompatible with this one.
    */
   async migrate(): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      const run = <Row>(sql: string, params?: unknown[]) => this.query<Row>(sql, params, tx);
-      await run(`select pg_advisory_xact_lock(hashtext($1))`, [`ton_watch:${this.schema}`]);
-      await run(`create schema if not exists $S`);
-      await run(`create table if not exists $S.schema_migrations (
-        version integer primary key,
-        name text not null,
-        applied_at timestamptz not null default now()
-      )`);
-      const applied = await run<{ version: number }>(`select version from $S.schema_migrations`);
-      const appliedVersions = new Set(applied.map((row) => Number(row.version)));
-      for (const migration of migrations) {
-        if (appliedVersions.has(migration.version)) continue;
-        for (const statement of migration.up) await run(statement);
-        await run(`insert into $S.schema_migrations (version, name) values ($1, $2)`, [
-          migration.version,
-          migration.name,
-        ]);
-      }
-    });
+    await migrateSchema(this.db, this.schema);
   }
 
   async close(): Promise<void> {
@@ -160,7 +153,7 @@ export class PgStore implements Store {
        values ($1, $2, $3, $4)
        on conflict (address) do update set active = true, updated_at = now()`,
       [
-        address,
+        toRawAddress(address),
         options.startLt.toString(),
         (options.syncedLt ?? 0n).toString(),
         options.syncedUtime ?? null,
@@ -170,18 +163,18 @@ export class PgStore implements Store {
 
   async removeAddress(address: string, options?: { purge?: boolean }): Promise<void> {
     if (options?.purge) {
-      await this.query(`delete from $S.addresses where address = $1`, [address]);
+      await this.query(`delete from $S.addresses where address = $1`, [toRawAddress(address)]);
     } else {
       await this.query(
         `update $S.addresses set active = false, updated_at = now() where address = $1`,
-        [address],
+        [toRawAddress(address)],
       );
     }
   }
 
   async getAddress(address: string): Promise<AddressState | null> {
     const [row] = await this.query<AddressRow>(`${SELECT_ADDRESS_STATE} where a.address = $1`, [
-      address,
+      toRawAddress(address),
     ]);
     return row ? addressStateFrom(row) : null;
   }
@@ -210,7 +203,7 @@ export class PgStore implements Store {
        on conflict do nothing
        returning lt`,
       [
-        address,
+        toRawAddress(address),
         txs.map((tx) => tx.lt.toString()),
         txs.map((tx) => toHex(tx.hash)),
         txs.map((tx) => tx.prevLt.toString()),
@@ -222,7 +215,8 @@ export class PgStore implements Store {
     return inserted.length;
   }
 
-  async findGaps(address: string, limit = DEFAULT_GAP_LIMIT): Promise<Gap[]> {
+  async findGaps(address: string, limit: number = DEFAULT_GAP_LIMIT): Promise<Gap[]> {
+    const raw = toRawAddress(address);
     const rows = await this.query<GapRow>(
       `with a as (select id, start_lt, frontier_lt from $S.addresses where address = $1)
        select t.lt::text, t.prev_lt::text, t.prev_hash,
@@ -233,10 +227,10 @@ export class PgStore implements Store {
        ${FROM_UNLINKED}
        order by t.lt asc
        limit $2`,
-      [address, limit],
+      [raw, limit],
     );
     return rows.map((row) => ({
-      address,
+      address: raw,
       aboveLt: BigInt(row.lt),
       prevLt: BigInt(row.prev_lt),
       prevHash: toBuffer(row.prev_hash),
@@ -263,7 +257,7 @@ export class PgStore implements Store {
        select coalesce((select frontier_lt from upd), (select frontier_lt from a))::text as lt,
          coalesce((select frontier_hash from upd),
            (select frontier_hash from $S.addresses where id = (select id from a))) as hash`,
-      [address],
+      [toRawAddress(address)],
     );
     return row ? txIdFrom(row.lt, row.hash) : null;
   }
@@ -275,21 +269,22 @@ export class PgStore implements Store {
        where a.address = any($1::text[]) and a.synced_lt < $2
          and a.frontier_lt is not distinct from
            (select max(t.lt) from $S.transactions t where t.address_id = a.id)`,
-      [addresses, syncLt.toString(), utime],
+      [addresses.map(toRawAddress), syncLt.toString(), utime],
     );
   }
 
   async read(address: string, afterLt: bigint, uptoLt: bigint, limit: number): Promise<TxRecord[]> {
+    const raw = toRawAddress(address);
     const rows = await this.query<TransactionRow>(
       `select t.lt::text, t.hash, t.prev_lt::text, t.prev_hash, t.utime::text, t.boc
        from $S.transactions t join $S.addresses a on a.id = t.address_id
        where a.address = $1 and t.lt > $2 and t.lt <= $3
        order by t.lt asc
        limit $4`,
-      [address, afterLt.toString(), uptoLt.toString(), limit],
+      [raw, afterLt.toString(), uptoLt.toString(), limit],
     );
     return rows.map((row) => ({
-      address,
+      address: raw,
       lt: BigInt(row.lt),
       hash: toBuffer(row.hash),
       prevLt: BigInt(row.prev_lt),
@@ -300,11 +295,11 @@ export class PgStore implements Store {
   }
 
   getCursor(consumer: string, address: string): Promise<bigint | null> {
-    return this.consumerState.getCursor(consumer, address);
+    return this.consumerState.getCursor(consumer, toRawAddress(address));
   }
 
   setCursor(consumer: string, address: string, lt: bigint): Promise<void> {
-    return this.consumerState.setCursor(consumer, address, lt);
+    return this.consumerState.setCursor(consumer, toRawAddress(address), lt);
   }
 
   compareAndSetCursor(
@@ -313,7 +308,7 @@ export class PgStore implements Store {
     expected: bigint | null,
     lt: bigint,
   ): Promise<boolean> {
-    return this.consumerState.compareAndSetCursor(consumer, address, expected, lt);
+    return this.consumerState.compareAndSetCursor(consumer, toRawAddress(address), expected, lt);
   }
 
   listCursors(consumer?: string): Promise<CursorState[]> {
@@ -321,7 +316,7 @@ export class PgStore implements Store {
   }
 
   recordFailure(consumer: string, address: string, error: string): Promise<CursorState | null> {
-    return this.consumerState.recordFailure(consumer, address, error);
+    return this.consumerState.recordFailure(consumer, toRawAddress(address), error);
   }
 
   saveConsumer(name: string, order: ConsumerOrder): Promise<void> {
@@ -337,19 +332,23 @@ export class PgStore implements Store {
   }
 
   putDeadLetter(letter: DeadLetter): Promise<void> {
-    return this.consumerState.putDeadLetter(letter);
+    return this.consumerState.putDeadLetter({ ...letter, address: toRawAddress(letter.address) });
   }
 
   updateDeadLetter(letter: DeadLetter): Promise<boolean> {
-    return this.consumerState.updateDeadLetter(letter);
+    return this.consumerState.updateDeadLetter({
+      ...letter,
+      address: toRawAddress(letter.address),
+    });
   }
 
-  listDeadLetters(filter?: DeadLetterFilter): Promise<DeadLetter[]> {
-    return this.consumerState.listDeadLetters(filter);
+  listDeadLetters(filter: DeadLetterFilter = {}): Promise<DeadLetter[]> {
+    const address = filter.address === undefined ? undefined : toRawAddress(filter.address);
+    return this.consumerState.listDeadLetters({ ...filter, address });
   }
 
   deleteDeadLetter(consumer: string, address: string, lt: bigint): Promise<boolean> {
-    return this.consumerState.deleteDeadLetter(consumer, address, lt);
+    return this.consumerState.deleteDeadLetter(consumer, toRawAddress(address), lt);
   }
 
   backlog(consumer: string, uptoLt?: bigint): Promise<Backlog[]> {
@@ -364,7 +363,7 @@ export class PgStore implements Store {
     return acquireConsumerLock(this.db, this.schema, name);
   }
 
-  async transaction<T>(fn: (tx: StoreTransaction) => Promise<T>): Promise<T> {
+  async transaction<T>(fn: (tx: StoreTransaction<PgQueryable>) => Promise<T>): Promise<T> {
     return this.db.transaction((client) => {
       const boundToTransaction: PgDatabase = {
         query: (text, params) => client.query(text, params),

@@ -1,5 +1,9 @@
 {
   "name": "@ton/ls",
-  "version": "0.0.3",
-  "exports": "./src/index.ts"
+  "version": "0.0.4",
+  "license": "MIT",
+  "exports": "./src/index.ts",
+  "publish": {
+    "include": ["src", "README.md", "CHANGELOG.md", "LICENSE.md"]
+  }
 }

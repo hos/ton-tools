@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import { configFromEnv, logLevelFromEnv, parseFrom } from "../../src/service/config";
+import { ENV_VARS } from "../../src/service/env";
 
-const base = { DATABASE_URL: "postgres://user@host/db" };
+const base = { TON_WATCH_DATABASE_URL: "postgres://user@host/db" };
 const A = "0:0000000000000000000000000000000000000000000000000000000000000001";
 const B = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c";
 const B_RAW = "0:0000000000000000000000000000000000000000000000000000000000000000";
 
 describe("configFromEnv defaults", () => {
-  test("only DATABASE_URL set", () => {
+  test("only TON_WATCH_DATABASE_URL set", () => {
     expect(configFromEnv(base)).toEqual({
       databaseUrl: "postgres://user@host/db",
       schema: undefined,
@@ -19,6 +20,7 @@ describe("configFromEnv defaults", () => {
       concurrency: 16,
       detect: "auto",
       logLevel: "info",
+      addressMetrics: false,
       history: null,
       webhooks: [],
     });
@@ -26,37 +28,15 @@ describe("configFromEnv defaults", () => {
 
   test("every variable empty is the same as unset", () => {
     const empty = Object.fromEntries(
-      [
-        "TON_WATCH_SCHEMA",
-        "TON_NETWORK",
-        "TON_NETWORK_CONFIG_URL",
-        "TON_ARCHIVE_CONFIG",
-        "TON_WATCH_ADDRESSES",
-        "TON_WATCH_PORT",
-        "TON_WATCH_CONCURRENCY",
-        "TON_WATCH_DETECT",
-        "TON_WATCH_LOG",
-        "TON_WATCH_HISTORY",
-        "TON_WATCH_HISTORY_MODE",
-        "TONCENTER_API_KEY",
-        "TONCENTER_ENDPOINT",
-        "TON_WATCH_WEBHOOK_URL",
-        "TON_WATCH_WEBHOOKS",
-        "TON_WATCH_WEBHOOK_SECRET",
-        "TON_WATCH_WEBHOOK_ORDER",
-        "TON_WATCH_WEBHOOK_FROM",
-        "TON_WATCH_WEBHOOK_TIMEOUT_MS",
-        "TON_WATCH_WEBHOOK_RETRY_MIN_MS",
-        "TON_WATCH_WEBHOOK_RETRY_MAX_MS",
-      ].map((name) => [name, ""]),
+      ENV_VARS.filter(({ name }) => !name.endsWith("DATABASE_URL")).map(({ name }) => [name, ""]),
     );
     expect(configFromEnv({ ...base, ...empty })).toEqual(configFromEnv(base));
   });
 
   test("undefined values are unset too", () => {
-    expect(configFromEnv({ ...base, TON_WATCH_PORT: undefined, TON_NETWORK: undefined })).toEqual(
-      configFromEnv(base),
-    );
+    expect(
+      configFromEnv({ ...base, TON_WATCH_PORT: undefined, TON_WATCH_NETWORK: undefined }),
+    ).toEqual(configFromEnv(base));
   });
 
   test("unrelated variables are ignored", () => {
@@ -65,33 +45,57 @@ describe("configFromEnv defaults", () => {
 });
 
 describe("configFromEnv values", () => {
-  test("DATABASE_URL empty or missing is an error", () => {
-    expect(() => configFromEnv({ DATABASE_URL: "" })).toThrow("DATABASE_URL is required");
-    expect(() => configFromEnv({ DATABASE_URL: undefined })).toThrow("DATABASE_URL is required");
+  test("the database URL empty or missing is an error", () => {
+    const message = "TON_WATCH_DATABASE_URL (or DATABASE_URL) is required";
+    expect(() => configFromEnv({ TON_WATCH_DATABASE_URL: "" })).toThrow(message);
+    expect(() => configFromEnv({ DATABASE_URL: undefined })).toThrow(message);
   });
 
-  test("schema and archive config pass through", () => {
+  test("DATABASE_URL is the fallback for TON_WATCH_DATABASE_URL", () => {
+    expect(configFromEnv({ DATABASE_URL: "postgres://a" }).databaseUrl).toBe("postgres://a");
+    expect(
+      configFromEnv({ DATABASE_URL: "postgres://a", TON_WATCH_DATABASE_URL: "postgres://b" })
+        .databaseUrl,
+    ).toBe("postgres://b");
+    expect(
+      configFromEnv({ DATABASE_URL: "postgres://a", TON_WATCH_DATABASE_URL: "" }).databaseUrl,
+    ).toBe("postgres://a");
+  });
+
+  test("schema, network and archive network pass through", () => {
     const config = configFromEnv({
       ...base,
       TON_WATCH_SCHEMA: "indexer",
-      TON_ARCHIVE_CONFIG: "https://example.org/archive.json",
+      TON_WATCH_NETWORK: "testnet",
+      TON_WATCH_ARCHIVE_NETWORK: "https://example.org/archive.json",
     });
     expect(config.schema).toBe("indexer");
+    expect(config.network).toBe("testnet");
     expect(config.archiveNetwork).toBe("https://example.org/archive.json");
   });
 
-  test("TON_NETWORK wins over its TON_NETWORK_CONFIG_URL alias", () => {
-    expect(configFromEnv({ ...base, TON_NETWORK: "testnet" }).network).toBe("testnet");
-    expect(configFromEnv({ ...base, TON_NETWORK_CONFIG_URL: "https://x/c.json" }).network).toBe(
-      "https://x/c.json",
+  test("the old unprefixed names are not read", () => {
+    const old = configFromEnv({
+      ...base,
+      TON_NETWORK: "testnet",
+      TON_NETWORK_CONFIG_URL: "https://x/c.json",
+      TON_ARCHIVE_CONFIG: "https://x/a.json",
+      TONCENTER_API_KEY: "k",
+      TON_WATCH_HISTORY: "toncenter",
+    });
+    expect(old.network).toBe("mainnet");
+    expect(old.archiveNetwork).toBeUndefined();
+    expect(old.history?.apiKey).toBeUndefined();
+  });
+
+  test("TON_WATCH_ADDRESS_METRICS is true or false", () => {
+    expect(configFromEnv({ ...base, TON_WATCH_ADDRESS_METRICS: "true" }).addressMetrics).toBe(true);
+    expect(configFromEnv({ ...base, TON_WATCH_ADDRESS_METRICS: "false" }).addressMetrics).toBe(
+      false,
     );
-    expect(
-      configFromEnv({ ...base, TON_NETWORK: "testnet", TON_NETWORK_CONFIG_URL: "https://x" })
-        .network,
-    ).toBe("testnet");
-    expect(
-      configFromEnv({ ...base, TON_NETWORK: "", TON_NETWORK_CONFIG_URL: "https://x" }).network,
-    ).toBe("https://x");
+    expect(() => configFromEnv({ ...base, TON_WATCH_ADDRESS_METRICS: "yes" })).toThrow(
+      "invalid TON_WATCH_ADDRESS_METRICS: yes (true | false)",
+    );
   });
 
   test("numbers", () => {
@@ -144,7 +148,7 @@ describe("configFromEnv values", () => {
     );
   });
 
-  test("logLevelFromEnv does not need DATABASE_URL", () => {
+  test("logLevelFromEnv does not need a database URL", () => {
     expect(logLevelFromEnv({ TON_WATCH_LOG: "warn" })).toBe("warn");
   });
 });
@@ -152,7 +156,7 @@ describe("configFromEnv values", () => {
 describe("toncenter history config", () => {
   test("off unless TON_WATCH_HISTORY=toncenter", () => {
     expect(configFromEnv({ ...base, TON_WATCH_HISTORY_MODE: "boost" }).history).toBeNull();
-    expect(configFromEnv({ ...base, TONCENTER_API_KEY: "k" }).history).toBeNull();
+    expect(configFromEnv({ ...base, TON_WATCH_TONCENTER_API_KEY: "k" }).history).toBeNull();
   });
 
   test("defaults to fallback without key or endpoint", () => {
@@ -169,8 +173,8 @@ describe("toncenter history config", () => {
         ...base,
         TON_WATCH_HISTORY: "toncenter",
         TON_WATCH_HISTORY_MODE: "boost",
-        TONCENTER_API_KEY: "secret",
-        TONCENTER_ENDPOINT: "http://localhost:8081/api/v2",
+        TON_WATCH_TONCENTER_API_KEY: "secret",
+        TON_WATCH_TONCENTER_ENDPOINT: "http://localhost:8081/api/v2",
       }).history,
     ).toEqual({ mode: "boost", apiKey: "secret", endpoint: "http://localhost:8081/api/v2" });
   });
@@ -192,11 +196,11 @@ describe("toncenter history config", () => {
 describe("TON_WATCH_ADDRESSES", () => {
   test("comma-separated, trimmed, empty entries skipped, default from now", () => {
     expect(
-      configFromEnv({ ...base, TON_WATCH_ADDRESSES: ` ${A} ,, ${B}@genesis ,${A}@12345, ` })
+      configFromEnv({ ...base, TON_WATCH_ADDRESSES: ` ${A} ,, ${B}@earliest ,${A}@12345, ` })
         .addresses,
     ).toEqual([
       { address: A, from: "now" },
-      { address: B_RAW, from: "genesis" },
+      { address: B_RAW, from: "earliest" },
       { address: A, from: 12345n },
     ]);
   });
@@ -211,7 +215,7 @@ describe("TON_WATCH_ADDRESSES", () => {
   test("an invalid address fails the whole config", () => {
     for (const [list, bad] of [
       [`${A},nope`, "nope"],
-      [`${A},@genesis`, "(empty)"],
+      [`${A},@earliest`, "(empty)"],
       [`${B.slice(0, -1)}x@now`, `${B.slice(0, -1)}x`],
     ]) {
       expect(() => configFromEnv({ ...base, TON_WATCH_ADDRESSES: list })).toThrow(
@@ -226,17 +230,17 @@ describe("TON_WATCH_ADDRESSES", () => {
 
   test("an invalid from fails the whole config", () => {
     expect(() => configFromEnv({ ...base, TON_WATCH_ADDRESSES: `${A}@yesterday` })).toThrow(
-      "invalid --from value: yesterday (now | genesis | <lt>)",
+      "invalid --from value: yesterday (now | earliest | <lt>)",
     );
   });
 });
 
 describe("parseFrom", () => {
-  test("now, genesis and lts", () => {
+  test("now, earliest and lts", () => {
     expect(parseFrom(undefined)).toBe("now");
     expect(parseFrom("")).toBe("now");
     expect(parseFrom("now")).toBe("now");
-    expect(parseFrom("genesis")).toBe("genesis");
+    expect(parseFrom("earliest")).toBe("earliest");
     expect(parseFrom("0")).toBe(0n);
     expect(parseFrom("007")).toBe(7n);
     expect(parseFrom("18446744073709551615")).toBe(18446744073709551615n);
@@ -256,7 +260,7 @@ describe("parseFrom", () => {
       "latest",
     ]) {
       expect(() => parseFrom(value)).toThrow(
-        `invalid --from value: ${value} (now | genesis | <lt>)`,
+        `invalid --from value: ${value} (now | earliest | <lt>)`,
       );
     }
   });

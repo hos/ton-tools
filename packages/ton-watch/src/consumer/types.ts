@@ -1,7 +1,8 @@
+import type { AddressInput } from "../core/address";
 import type { IndexedTx } from "../core/types";
 import type { ConsumerOrder, DeadLetter } from "../stores/consumer-state";
 
-export interface HandlerContext {
+export interface HandlerContext<Db = unknown> {
   /** Name of the consumer delivering the transaction. */
   consumer: string;
   /** Raw address the transaction belongs to. */
@@ -9,15 +10,20 @@ export interface HandlerContext {
   /**
    * With a transactional store (`PgStore`), the database transaction the cursor is
    * committed in. Write your own effects through it and they commit exactly once
-   * together with the delivery position.
+   * together with the delivery position. Typed after the store: `PgQueryable`
+   * with `PgStore`; absent with `MemoryStore`, with `transactional: false`, and
+   * in `replayDeadLetter` calls that run outside a transaction.
    */
-  db?: unknown;
+  db?: Db;
   /** True when a dead letter is being replayed (out of order, see `replayDeadLetter`). */
   replay: boolean;
 }
 
 /** Called once per transaction, in order. Throwing fails the delivery (see `ProcessOptions.onError`). */
-export type TxHandler = (tx: IndexedTx, ctx: HandlerContext) => Promise<void> | void;
+export type TxHandler<Db = unknown> = (
+  tx: IndexedTx,
+  ctx: HandlerContext<Db>,
+) => Promise<void> | void;
 
 /**
  * What to do with a transaction whose handler keeps failing:
@@ -33,12 +39,12 @@ export type LockMode = "fail" | "wait";
 export interface ProcessOptions {
   /**
    * Where to begin for an address this consumer has not seen before:
-   * `"start"` (default) everything since the address's startLt, `"now"` only what is
-   * indexed after this point, or an lt (exclusive). Ignored once a position is stored.
+   * `"earliest"` (default) everything since the address's startLt, `"now"` only what
+   * is indexed after this point, or an lt (exclusive). Ignored once a position is stored.
    */
-  from?: "start" | "now" | bigint;
-  /** Raw or friendly addresses; default every tracked address, including ones added later. */
-  addresses?: string[];
+  from?: "earliest" | "now" | bigint;
+  /** Addresses to deliver; default every tracked address, including ones added later. */
+  addresses?: readonly AddressInput[];
   /**
    * `"address"` (default): each address in lt order, addresses independent of each
    * other. `"global"`: one stream in (lt, address) order, released up to the
@@ -147,15 +153,21 @@ export interface ConsumerEventMap {
   deadLetter: [letter: DeadLetter];
 }
 
-/** Where `rewind` moves a cursor: the address's startLt, its frontier, or right after an lt. */
-export type RewindTarget = "start" | "now" | bigint;
+/**
+ * Where `rewind` moves a cursor: `"earliest"` (the address's startLt), `"now"` (its
+ * frontier), or right after an lt.
+ */
+export type RewindTarget = "earliest" | "now" | bigint;
 
 export interface RewindOptions {
   /** Addresses to move; default every address the consumer has a cursor on. */
-  addresses?: string[];
+  addresses?: readonly AddressInput[];
 }
 
-/** Indexer events a consumer wakes up on (an `Indexer`, or any `EventEmitter`). */
+/**
+ * Indexer events a consumer wakes up on (an `Indexer`, or any `EventEmitter`).
+ * @experimental
+ */
 export interface ConsumerWakeEvents {
   on(event: "frontier" | "synced", listener: () => void): unknown;
   off(event: "frontier" | "synced", listener: () => void): unknown;

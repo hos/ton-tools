@@ -1,50 +1,30 @@
-import { Address, Cell, ExternalAddress } from "@ton/core";
+import type { Address, Cell, ExternalAddress } from "@ton/core";
 
 import type { TxRecord } from "../../core/types";
 import { parseTransaction } from "../../parse";
-import type { ParsedTransaction } from "../../parse/types";
-
-/** A hash in the two encodings receivers commonly need. */
-export interface HashJson {
-  hex: string;
-  base64: string;
-}
-
-/** The JSON body of one webhook request: one transaction. */
-export interface WebhookPayload {
-  /** `<raw address>:<lt>:<hex hash>`; also sent as the `Idempotency-Key` header. */
-  id: string;
-  /** Name of the target this was sent to. */
-  webhook: string;
-  address: { raw: string; friendly: string };
-  /** Logical time, as a decimal string. */
-  lt: string;
-  hash: HashJson;
-  utime: number;
-  /** The account's previous transaction; null for its very first one. */
-  prev: { lt: string; hash: HashJson } | null;
-  /** The transaction cell as a base64 BOC. */
-  boc: string;
-  /** Decoded summary (see `ton-watch/parse`); null if the BOC could not be parsed. */
-  parsed: ParsedJson | null;
-  /**
-   * True when an operator replays a dead letter: sent again out of order, possibly
-   * after later transactions of the address. Also sent as `TON-Watch-Replay: 1`.
-   */
-  replay: boolean;
-}
-
-/**
- * `ParsedTransaction` minus the fields already at the top level and the
- * `@ton/core` objects, in JSON form: bigints as decimal strings, addresses as raw
- * strings, cells as base64 BOCs, buffers as base64, maps as objects.
- */
-export type ParsedJson = Record<string, unknown>;
+import type {
+  Comment,
+  ForwardPayload,
+  Malformed,
+  MessageBody,
+  ParsedMessage,
+  ParsedTransaction,
+} from "../../parse/types";
+import {
+  type CommentJson,
+  type ExternalAddressJson,
+  type ForwardPayloadJson,
+  type MalformedJson,
+  type MessageBodyJson,
+  type MessageJson,
+  type TransactionJson,
+  WEBHOOK_PAYLOAD_VERSION,
+  type WebhookPayload,
+} from "../../webhook/types";
 
 export interface PayloadOptions {
+  /** Name of the target. */
   webhook: string;
-  /** Format the friendly address for testnet. */
-  testOnly: boolean;
   /** A dead letter being replayed. Default false. */
   replay?: boolean;
 }
@@ -54,57 +34,239 @@ export function deliveryId(tx: TxRecord): string {
   return `${tx.address}:${tx.lt}:${tx.hash.toString("hex")}`;
 }
 
+/** The request body for `tx`. Every field is mapped explicitly: see `webhook/types.ts`. */
 export function webhookPayload(
   tx: TxRecord,
-  { webhook, testOnly, replay = false }: PayloadOptions,
+  { webhook, replay = false }: PayloadOptions,
 ): WebhookPayload {
   return {
+    version: WEBHOOK_PAYLOAD_VERSION,
+    type: "transaction",
     id: deliveryId(tx),
     webhook,
-    address: {
-      raw: tx.address,
-      friendly: Address.parse(tx.address).toString({ testOnly }),
-    },
+    address: tx.address,
     lt: tx.lt.toString(),
-    hash: hashJson(tx.hash),
+    hash: tx.hash.toString("hex"),
     utime: tx.utime,
-    prev: tx.prevLt === 0n ? null : { lt: tx.prevLt.toString(), hash: hashJson(tx.prevHash) },
+    prev: tx.prevLt === 0n ? null : { lt: tx.prevLt.toString(), hash: tx.prevHash.toString("hex") },
     boc: tx.boc.toString("base64"),
     parsed: parsedJson(tx),
     replay,
   };
 }
 
-function hashJson(hash: Buffer): HashJson {
-  return { hex: hash.toString("hex"), base64: hash.toString("base64") };
-}
-
-function parsedJson(tx: TxRecord): ParsedJson | null {
+function parsedJson(tx: TxRecord): TransactionJson | null {
   let parsed: ParsedTransaction;
   try {
     parsed = parseTransaction(tx);
   } catch {
     return null;
   }
-  const { address: _a, lt: _l, hash: _h, utime: _u, raw: _r, ...summary } = parsed;
-  return toJsonValue(summary) as ParsedJson;
+  return transactionJson(parsed);
 }
 
-/** Converts parse results to plain JSON values, dropping `raw` `@ton/core` objects. */
-export function toJsonValue(value: unknown): unknown {
-  if (typeof value === "bigint") return value.toString();
-  if (value === null || typeof value !== "object") return value;
-  if (Address.isAddress(value)) return value.toRawString();
-  if (ExternalAddress.isAddress(value)) return value.toString();
-  if (value instanceof Cell) return value.toBoc().toString("base64");
-  if (Buffer.isBuffer(value)) return value.toString("base64");
-  if (Array.isArray(value)) return value.map(toJsonValue);
-  if (value instanceof Map) {
-    return Object.fromEntries([...value].map(([key, item]) => [String(key), toJsonValue(item)]));
+export function transactionJson(tx: ParsedTransaction): TransactionJson {
+  return {
+    type: tx.type,
+    success: tx.success,
+    aborted: tx.aborted,
+    compute:
+      tx.compute === null
+        ? null
+        : tx.compute.type === "skipped"
+          ? { type: "skipped", reason: tx.compute.reason }
+          : {
+              type: "vm",
+              success: tx.compute.success,
+              exitCode: tx.compute.exitCode,
+              gasUsed: tx.compute.gasUsed.toString(),
+            },
+    action:
+      tx.action === null
+        ? null
+        : {
+            success: tx.action.success,
+            resultCode: tx.action.resultCode,
+            totalActions: tx.action.totalActions,
+            skippedActions: tx.action.skippedActions,
+          },
+    receivedBounce: tx.receivedBounce,
+    bouncedBack: tx.bouncedBack,
+    direction: tx.direction,
+    inMessage: tx.inMessage === null ? null : messageJson(tx.inMessage),
+    outMessages: tx.outMessages.map(messageJson),
+    totalFees: tx.totalFees.toString(),
+    valueIn: tx.valueIn.toString(),
+    valueOut: tx.valueOut.toString(),
+  };
+}
+
+function messageJson(message: ParsedMessage): MessageJson {
+  const base = {
+    op: message.op,
+    queryId: optionalDecimal(message.queryId),
+    comment: message.comment,
+    body: bodyJson(message.body),
+  };
+  switch (message.type) {
+    case "internal":
+      return {
+        type: "internal",
+        src: message.src.toRawString(),
+        dest: message.dest.toRawString(),
+        value: message.value.toString(),
+        extraCurrencies: Object.fromEntries(
+          [...message.extraCurrencies].map(([id, amount]) => [String(id), amount.toString()]),
+        ),
+        bounce: message.bounce,
+        bounced: message.bounced,
+        fwdFee: message.fwdFee.toString(),
+        extraFlags: message.extraFlags.toString(),
+        createdLt: message.createdLt.toString(),
+        createdAt: message.createdAt,
+        ...base,
+      };
+    case "external-in":
+      return {
+        type: "external-in",
+        src: externalJson(message.src),
+        dest: message.dest.toRawString(),
+        importFee: message.importFee.toString(),
+        ...base,
+      };
+    case "external-out":
+      return {
+        type: "external-out",
+        src: message.src.toRawString(),
+        dest: externalJson(message.dest),
+        createdLt: message.createdLt.toString(),
+        createdAt: message.createdAt,
+        ...base,
+      };
   }
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => key !== "raw")
-      .map(([key, item]) => [key, toJsonValue(item)]),
-  );
+}
+
+function bodyJson(body: MessageBody): MessageBodyJson {
+  switch (body.kind) {
+    case "empty":
+      return { kind: "empty" };
+    case "text-comment":
+    case "binary-comment":
+    case "encrypted-comment":
+    case "malformed":
+      return commentJson(body);
+    case "jetton-transfer":
+      return {
+        kind: body.kind,
+        queryId: body.queryId.toString(),
+        amount: body.amount.toString(),
+        destination: optionalAddress(body.destination),
+        responseDestination: optionalAddress(body.responseDestination),
+        customPayload: optionalBoc(body.customPayload),
+        forwardTonAmount: body.forwardTonAmount.toString(),
+        forwardPayload: forwardPayloadJson(body.forwardPayload),
+      };
+    case "jetton-transfer-notification":
+      return {
+        kind: body.kind,
+        queryId: body.queryId.toString(),
+        amount: body.amount.toString(),
+        sender: optionalAddress(body.sender),
+        forwardPayload: forwardPayloadJson(body.forwardPayload),
+      };
+    case "jetton-internal-transfer":
+      return {
+        kind: body.kind,
+        queryId: body.queryId.toString(),
+        amount: body.amount.toString(),
+        from: optionalAddress(body.from),
+        responseAddress: optionalAddress(body.responseAddress),
+        forwardTonAmount: body.forwardTonAmount.toString(),
+        forwardPayload: forwardPayloadJson(body.forwardPayload),
+      };
+    case "excesses":
+      return { kind: body.kind, queryId: body.queryId.toString() };
+    case "jetton-burn":
+      return {
+        kind: body.kind,
+        queryId: body.queryId.toString(),
+        amount: body.amount.toString(),
+        responseDestination: optionalAddress(body.responseDestination),
+        customPayload: optionalBoc(body.customPayload),
+      };
+    case "nft-transfer":
+      return {
+        kind: body.kind,
+        queryId: body.queryId.toString(),
+        newOwner: optionalAddress(body.newOwner),
+        responseDestination: optionalAddress(body.responseDestination),
+        customPayload: optionalBoc(body.customPayload),
+        forwardAmount: body.forwardAmount.toString(),
+        forwardPayload: forwardPayloadJson(body.forwardPayload),
+      };
+    case "nft-ownership-assigned":
+      return {
+        kind: body.kind,
+        queryId: body.queryId.toString(),
+        prevOwner: optionalAddress(body.prevOwner),
+        forwardPayload: forwardPayloadJson(body.forwardPayload),
+      };
+    case "bounce": {
+      const common = {
+        kind: body.kind,
+        originalOp: body.originalOp,
+        originalQueryId: optionalDecimal(body.originalQueryId),
+        originalBody: boc(body.originalBody),
+      };
+      if (body.format === "legacy") return { ...common, format: "legacy" };
+      return {
+        ...common,
+        format: "new",
+        originalValue: body.originalValue.toString(),
+        originalCreatedLt: body.originalCreatedLt.toString(),
+        originalCreatedAt: body.originalCreatedAt,
+        bouncedBy: body.bouncedBy,
+        exitCode: body.exitCode,
+        compute:
+          body.compute === null
+            ? null
+            : { gasUsed: body.compute.gasUsed, vmSteps: body.compute.vmSteps },
+      };
+    }
+    case "unknown":
+      return { kind: body.kind, op: body.op };
+  }
+}
+
+function forwardPayloadJson(payload: ForwardPayload): ForwardPayloadJson {
+  switch (payload.kind) {
+    case "empty":
+      return { kind: "empty" };
+    case "opaque":
+      return { kind: payload.kind, op: payload.op, cell: boc(payload.cell) };
+    default:
+      return commentJson(payload);
+  }
+}
+
+function commentJson(value: Comment | Malformed): CommentJson | MalformedJson {
+  switch (value.kind) {
+    case "text-comment":
+      return { kind: value.kind, text: value.text };
+    case "binary-comment":
+    case "encrypted-comment":
+      return { kind: value.kind, data: value.data.toString("base64") };
+    case "malformed":
+      return { kind: value.kind, op: value.op, reason: value.reason };
+  }
+}
+
+const boc = (cell: Cell) => cell.toBoc().toString("base64");
+const optionalBoc = (cell: Cell | null) => (cell === null ? null : boc(cell));
+const optionalAddress = (address: Address | null) =>
+  address === null ? null : address.toRawString();
+const optionalDecimal = (value: bigint | null) => (value === null ? null : value.toString());
+
+function externalJson(address: ExternalAddress | null): ExternalAddressJson | null {
+  return address === null ? null : { bits: address.bits, value: address.value.toString() };
 }

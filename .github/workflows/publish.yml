@@ -1,0 +1,67 @@
+# Publishes a package to JSR when its release tag is pushed:
+#   ton-watch-v<version>  ->  @ton/watch  (packages/ton-watch)
+#   ton-ls-v<version>     ->  @ton/ls     (packages/ton-ls)
+# Authenticates with GitHub OIDC (no token); the repository must be linked to
+# each package on jsr.io first. See RELEASING.md.
+name: Publish to JSR
+
+on:
+  push:
+    tags:
+      - "ton-watch-v*"
+      - "ton-ls-v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve package from tag
+        id: package
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in
+            ton-watch-v*) dir=packages/ton-watch; version="${tag#ton-watch-v}" ;;
+            ton-ls-v*)    dir=packages/ton-ls;    version="${tag#ton-ls-v}" ;;
+            *) echo "::error::unexpected tag $tag"; exit 1 ;;
+          esac
+          for manifest in package.json jsr.json; do
+            actual=$(jq -r .version "$dir/$manifest")
+            if [ "$actual" != "$version" ]; then
+              echo "::error::tag $tag is version $version but $dir/$manifest says $actual"
+              exit 1
+            fi
+          done
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        if: steps.package.outputs.dir == 'packages/ton-watch'
+        working-directory: ${{ steps.package.outputs.dir }}
+        run: bun run typecheck
+
+      - name: Lint
+        working-directory: ${{ steps.package.outputs.dir }}
+        run: bun run lint
+
+      - name: Test
+        working-directory: ${{ steps.package.outputs.dir }}
+        run: bun test
+
+      - name: Publish
+        working-directory: ${{ steps.package.outputs.dir }}
+        run: bunx jsr publish

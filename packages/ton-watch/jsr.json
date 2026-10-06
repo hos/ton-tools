@@ -1,0 +1,17 @@
+{
+  "name": "@ton/watch",
+  "version": "0.1.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./advanced": "./src/advanced.ts",
+    "./toncenter": "./src/plugins/toncenter/index.ts",
+    "./parse": "./src/parse/index.ts",
+    "./webhook": "./src/webhook/index.ts",
+    "./cli": "./src/cli.ts"
+  },
+  "publish": {
+    "include": ["src", "docs", "README.md", "CHANGELOG.md", "LICENSE.md"],
+    "exclude": ["tests", "bench", "api", "examples", "src/bin"]
+  }
+}

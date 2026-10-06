@@ -14,6 +14,7 @@ import type { ProcessOptions } from "../../src/consumer/types";
 import { completeUpTo, type IndexedTx, type TxRecord } from "../../src/core/types";
 import { Indexer } from "../../src/indexer/indexer";
 import { MemoryStore } from "../../src/stores/memory/memory-store";
+import type { PgDatabase } from "../../src/stores/pg/database";
 import type { PgStore } from "../../src/stores/pg/pg-store";
 import type { Store } from "../../src/stores/store";
 import { FakeChain, FakeSource, fakeAddress, rng } from "../fixtures/fake-chain";
@@ -31,6 +32,7 @@ import {
   shuffle,
   sleep,
 } from "../fixtures/property-helpers";
+import { pgDatabaseOf } from "../fixtures/store-targets";
 
 const key = (tx: TxRecord) => `${tx.address}/${tx.lt}`;
 
@@ -132,7 +134,7 @@ class DeliveryLog {
     private readonly store: Store,
     private readonly startLts: Map<string, bigint>,
     private readonly order: "address" | "global",
-    private readonly from: ProcessOptions["from"] = "start",
+    private readonly from: ProcessOptions["from"] = "earliest",
   ) {}
 
   handler = async (tx: IndexedTx) => {
@@ -153,7 +155,7 @@ class DeliveryLog {
       if (tx.prevLt !== prev.lt || !tx.prevHash.equals(prev.hash)) {
         this.fail(`${key(tx)} does not follow ${key(prev)}`);
       }
-    } else if (this.from === "start" && tx.prevLt > this.startLts.get(tx.address)!) {
+    } else if (this.from === "earliest" && tx.prevLt > this.startLts.get(tx.address)!) {
       this.fail(`${key(tx)} is not the first transaction in scope`);
     }
     mine.push(tx);
@@ -280,11 +282,11 @@ describe("consumer property: Postgres effects commit with the cursor", () => {
       const store: PgStore = await newPgStore();
       const indexing = new FakeIndexing(r, store, addressSet(r));
       await indexing.init();
-      await store.db.query(`create table effects (address text, lt bigint)`);
+      await pgDatabaseOf(store).query(`create table effects (address text, lt bigint)`);
       const order = pick(r, ["address", "global"] as const);
       let failP = 0.25;
       const handler = async (tx: IndexedTx, ctx: { db?: unknown }) => {
-        const db = ctx.db as PgStore["db"];
+        const db = ctx.db as PgDatabase;
         if (chance(r, failP / 2)) throw new Error("before effect");
         await db.query(`insert into effects values ($1, $2)`, [tx.address, tx.lt.toString()]);
         if (chance(r, failP / 2)) throw new Error("after effect");
@@ -305,7 +307,7 @@ describe("consumer property: Postgres effects commit with the cursor", () => {
       await indexing.finish();
       failP = 0;
       await drain(make());
-      const { rows } = await store.db.query(
+      const { rows } = await pgDatabaseOf(store).query(
         `select count(*)::int as n, count(distinct (address, lt))::int as d from effects`,
       );
       const total = indexing.addresses.reduce((n, a) => n + indexing.expected(a).length, 0);

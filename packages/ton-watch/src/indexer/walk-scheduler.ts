@@ -10,12 +10,14 @@ const FAILURES_BEFORE_IGNORED_BY_DRAIN = 5;
  * one page at a time; `runPage` advances, finishes or reschedules it.
  *
  * `stop()` pauses it: pages in flight finish, but no new page starts and no retry
- * timer is armed until `resume()`.
+ * timer is armed until `resume()`. `abandonRunning()` gives up on the pages in
+ * flight.
  */
 export class WalkScheduler {
   private readonly walks = new Map<number, Walk>();
   private lastWalkId = 0;
-  private inFlight = 0;
+  /** Pages in flight, by walk; a page abandoned by `abandonRunning()` is no longer here. */
+  private readonly running = new Set<Walk>();
   private stopped = false;
   private wakeTimer: ReturnType<typeof setTimeout> | null = null;
   private idleWaiters: (() => void)[] = [];
@@ -97,7 +99,7 @@ export class WalkScheduler {
       (walk) =>
         walk.running || (!isParked(walk) && walk.failures < FAILURES_BEFORE_IGNORED_BY_DRAIN),
     );
-    return pending || this.inFlight > 0;
+    return pending || this.running.size > 0;
   }
 
   /** Whether `stop()` was called and not undone by `resume()`. */
@@ -106,14 +108,21 @@ export class WalkScheduler {
   }
 
   get pagesInFlight(): number {
-    return this.inFlight;
+    return this.running.size;
   }
 
   /** Resolves when no page is in flight, or after `timeoutMs` if given. */
   whenIdle(timeoutMs?: number): Promise<void> {
     return new Promise((resolve) => {
-      this.idleWaiters.push(resolve);
-      if (timeoutMs !== undefined) setTimeout(resolve, timeoutMs);
+      if (timeoutMs === undefined) {
+        this.idleWaiters.push(resolve);
+        return;
+      }
+      const timer = setTimeout(resolve, timeoutMs);
+      this.idleWaiters.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
     });
   }
 
@@ -123,16 +132,17 @@ export class WalkScheduler {
     // One clock reading for both decisions: a walk not ready yet at `now` must
     // get a timer, even if its delay elapses while this runs.
     const now = Date.now();
-    while (this.inFlight < this.concurrency) {
+    while (this.running.size < this.concurrency) {
       const walk = this.nextReady(now);
       if (!walk) break;
       walk.running = true;
-      this.inFlight++;
+      this.running.add(walk);
       void this.runPage(walk).finally(() => {
+        // Abandoned meanwhile: already accounted for.
+        if (!this.running.delete(walk)) return;
         walk.running = false;
-        this.inFlight--;
         this.pump();
-        if (this.inFlight === 0) this.notifyIdle();
+        if (this.running.size === 0) this.notifyIdle();
       });
     }
     this.armWakeTimer(now);
@@ -142,6 +152,21 @@ export class WalkScheduler {
   stop(): void {
     this.stopped = true;
     this.clearWakeTimer();
+  }
+
+  /**
+   * Gives up on every page in flight: their walks are dropped (like `dropAddress`,
+   * so a page that still completes later neither stores nor continues anything)
+   * and they no longer count as in flight. What those walks had left is found
+   * again as gaps (once their addresses are scanned), or as a new head walk.
+   * Returns the abandoned walks.
+   */
+  abandonRunning(): Walk[] {
+    const abandoned = [...this.running];
+    for (const walk of abandoned) this.walks.delete(walk.id);
+    this.running.clear();
+    if (abandoned.length > 0) this.notifyIdle();
+    return abandoned;
   }
 
   /** Undoes `stop()` and starts whatever is ready. */

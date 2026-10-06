@@ -1,8 +1,14 @@
 import { EventEmitter } from "node:events";
 
-import { abbreviateAddress } from "../core/address";
-import { errorMessage } from "../core/errors";
-import { type AddressState, type TxRecord, toIndexedTx, watermarkOf } from "../core/types";
+import { type AddressInput, abbreviateAddress, toRawAddress } from "../core/address";
+import { errorMessage, TonWatchError } from "../core/errors";
+import {
+  type AddressState,
+  type IndexedTx,
+  type TxRecord,
+  toIndexedTx,
+  watermarkOf,
+} from "../core/types";
 import { Metrics } from "../metrics/metrics";
 import type {
   ConsumerLock,
@@ -25,6 +31,7 @@ import type {
   ConsumerLag,
   ConsumerStatus,
   ConsumerWakeEvents,
+  HandlerContext,
   ProcessOptions,
   RewindOptions,
   RewindTarget,
@@ -73,6 +80,10 @@ interface Round {
   conflict: boolean;
 }
 
+/**
+ * What a `Consumer` is wired to besides its store; `TonWatch` passes its own.
+ * @experimental
+ */
 export interface ConsumerDeps {
   /** Wake up on these instead of waiting for the next poll. */
   events?: ConsumerWakeEvents;
@@ -91,11 +102,18 @@ export interface ConsumerDeps {
  * store's consumer lock (see `ProcessOptions.lock`).
  *
  * Emits `handlerError`, `skip` and `deadLetter` (see `ConsumerEventMap`).
+ *
+ * Get one from `TonWatch.process()`. Constructing one directly (exported from
+ * `@ton/watch/advanced`) is experimental.
  */
-export class Consumer extends EventEmitter<ConsumerEventMap> {
+export class Consumer<Db = unknown> extends EventEmitter<ConsumerEventMap> {
   readonly name: string;
-  private readonly store: Store;
-  private readonly handler: TxHandler;
+  private readonly store: Store<Db>;
+  /**
+   * Stored as `TxHandler<never>` so that `Consumer<PgQueryable>` is still a
+   * `Consumer` (a function-typed field would make `Db` invariant); see `handle`.
+   */
+  private readonly handler: TxHandler<never>;
   private readonly settings: ConsumerSettings;
   /** Raw addresses to deliver; null for all. */
   private readonly onlyAddresses: Set<string> | null;
@@ -126,8 +144,8 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
 
   constructor(
     name: string,
-    store: Store,
-    handler: TxHandler,
+    store: Store<Db>,
+    handler: TxHandler<Db>,
     options: ProcessOptions = {},
     deps: ConsumerDeps = {},
   ) {
@@ -135,7 +153,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     this.name = name;
     this.store = store;
     this.handler = handler;
-    this.onlyAddresses = options.addresses ? new Set(options.addresses) : null;
+    this.onlyAddresses = options.addresses ? new Set(options.addresses.map(toRawAddress)) : null;
     this.settings = resolveSettings(options);
     this.logger = deps.logger ?? silentLogger;
     this.metrics = deps.metrics ?? new Metrics();
@@ -234,7 +252,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
   }
 
   /**
-   * Moves the cursors to `to` (raw `addresses`, default all the consumer has) and
+   * Moves the cursors to `to` (on `addresses`, default all the consumer has) and
    * clears their failure counts. A running consumer applies it between rounds: the
    * current round ends after the transaction being handled. Rejects with
    * `ConsumerLockedError` if another instance runs. Dead letters are kept.
@@ -250,7 +268,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
       await this.serial.run(async () => {
         stopYielding();
         await this.whileLocked("fail", () =>
-          rewindCursors(this.store, this.name, to, options.addresses),
+          rewindCursors(this.store, this.name, to, options.addresses?.map(toRawAddress)),
         );
         this.lanes.clear();
         this.lanesLoaded = false;
@@ -263,12 +281,13 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
 
   /** This consumer's dead letters, oldest first. */
   deadLetters(filter: Omit<DeadLetterFilter, "consumer"> = {}): Promise<DeadLetter[]> {
-    return this.store.listDeadLetters({ ...filter, consumer: this.name });
+    const address = filter.address === undefined ? undefined : toRawAddress(filter.address);
+    return this.store.listDeadLetters({ ...filter, address, consumer: this.name });
   }
 
   /** Deletes a dead letter without redelivering it. False if there was none. */
-  discardDeadLetter(address: string, lt: bigint): Promise<boolean> {
-    return this.store.deleteDeadLetter(this.name, address, lt);
+  discardDeadLetter(address: AddressInput, lt: bigint): Promise<boolean> {
+    return this.store.deleteDeadLetter(this.name, toRawAddress(address), lt);
   }
 
   /**
@@ -277,18 +296,34 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
    * when transactional. It is out of order by nature and may run alongside live
    * delivery. If the handler throws, the dead letter stays (with the new error)
    * and the error is rethrown — unless it was discarded meanwhile, which stands.
+   *
+   * Rejects with code `DEAD_LETTER_NOT_FOUND` if there is no such dead letter (or it
+   * was discarded during the replay), `TRANSACTION_NOT_FOUND` if the transaction is
+   * no longer stored.
    */
-  async replayDeadLetter(address: string, lt: bigint): Promise<void> {
+  async replayDeadLetter(addressInput: AddressInput, lt: bigint): Promise<void> {
+    const address = toRawAddress(addressInput);
     const [letter] = await this.store.listDeadLetters({ consumer: this.name, address, lt });
-    if (!letter) throw new Error(`consumer ${this.name} has no dead letter at ${address} lt ${lt}`);
+    if (!letter) {
+      throw new TonWatchError(
+        "DEAD_LETTER_NOT_FOUND",
+        `consumer ${this.name} has no dead letter at ${address} lt ${lt}`,
+      );
+    }
     const [record] = await this.store.read(address, lt - 1n, lt, 1);
     if (!record?.hash.equals(letter.hash)) {
-      throw new Error(`transaction ${address} lt ${lt} is no longer stored`);
+      throw new TonWatchError(
+        "TRANSACTION_NOT_FOUND",
+        `transaction ${address} lt ${lt} is no longer stored`,
+      );
     }
-    const resolvedElsewhere = new Error(`dead letter ${address} lt ${lt} was discarded meanwhile`);
+    const resolvedElsewhere = new TonWatchError(
+      "DEAD_LETTER_NOT_FOUND",
+      `dead letter ${address} lt ${lt} was discarded meanwhile`,
+    );
     try {
       await this.withDeliveryStore(async (store, db) => {
-        await this.handler(toIndexedTx(record), {
+        await this.handle(toIndexedTx(record), {
           consumer: this.name,
           address,
           db,
@@ -548,13 +583,17 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
    */
   private initialCursor(state: AddressState): bigint {
     const { from } = this.settings;
-    if (from === "start") return state.startLt;
+    if (from === "earliest") return state.startLt;
     if (from === "now") return state.frontier?.lt ?? state.startLt;
     return from;
   }
 
+  private handle(tx: IndexedTx, ctx: HandlerContext<Db>): Promise<void> | void {
+    return (this.handler as TxHandler<Db>)(tx, ctx);
+  }
+
   /** Runs `fn` in a store transaction if the consumer is transactional and the store has them. */
-  private withDeliveryStore<T>(fn: (store: Store, db?: unknown) => Promise<T>): Promise<T> {
+  private withDeliveryStore<T>(fn: (store: Store<Db>, db?: Db) => Promise<T>): Promise<T> {
     if (this.settings.transactional && this.store.transaction) {
       return this.store.transaction(({ store, db }) => fn(store, db));
     }
@@ -581,7 +620,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     const tx = toIndexedTx(record);
     try {
       await this.withDeliveryStore(async (store, db) => {
-        await this.handler(tx, { consumer: this.name, address: lane.address, db, replay: false });
+        await this.handle(tx, { consumer: this.name, address: lane.address, db, replay: false });
         await this.moveCursor(store, lane, record.lt);
       });
     } catch (error) {
@@ -599,7 +638,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
    * `CursorConflictError` (rolling back the enclosing transaction) if it is not
    * there any more.
    */
-  private async moveCursor(store: Store, lane: Lane, lt: bigint): Promise<void> {
+  private async moveCursor(store: Store<Db>, lane: Lane, lt: bigint): Promise<void> {
     if (!(await store.compareAndSetCursor(this.name, lane.address, lane.cursor, lt))) {
       throw new CursorConflictError(this.name, lane.address, lane.cursor);
     }
@@ -741,6 +780,7 @@ export class Consumer extends EventEmitter<ConsumerEventMap> {
     if (watermark === null) return 0;
     const now = Date.now();
     if ([...this.lanes.values()].some((lane) => lane.notBefore > now)) return 0;
+    // Exact below 2^53; see the metric's help in `METRICS`.
     this.metrics.set("ton_watch_consumer_watermark_lt", Number(watermark), {
       consumer: this.name,
     });

@@ -8,10 +8,10 @@ const A = "0:0000000000000000000000000000000000000000000000000000000000000001";
 const A_FRIENDLY = Address.parse(A).toString();
 
 const defaults = {
-  secret: null,
+  secrets: [],
   addresses: null,
   order: "address",
-  from: "start",
+  from: "earliest",
   timeoutMs: 10_000,
   retryMinMs: 1_000,
   retryMaxMs: 60_000,
@@ -43,7 +43,7 @@ describe("webhooksFromEnv", () => {
       TON_WATCH_WEBHOOK_MAX_ATTEMPTS: "3",
     });
     expect(target).toMatchObject({
-      secret: "s3cret",
+      secrets: ["s3cret"],
       order: "global",
       from: "now",
       timeoutMs: 2500,
@@ -67,12 +67,36 @@ describe("webhooksFromEnv", () => {
       ]),
     });
     expect(
-      targets.map((t) => [t.name, t.secret, t.addresses, t.order, t.from, t.timeoutMs]),
+      targets.map((t) => [t.name, t.secrets, t.addresses, t.order, t.from, t.timeoutMs]),
     ).toEqual([
-      ["default", "shared", null, "address", "start", 10_000],
-      ["billing", "shared", [A], "global", "start", 10_000],
-      ["audit.v2", "own", null, "address", "now", 50],
+      ["default", ["shared"], null, "address", "earliest", 10_000],
+      ["billing", ["shared"], [A], "global", "earliest", 10_000],
+      ["audit.v2", ["own"], null, "address", "now", 50],
     ]);
+  });
+
+  test("rotation: TON_WATCH_WEBHOOK_SECRET_PREVIOUS signs as well, after the current secret", () => {
+    const targets = webhooksFromEnv({
+      TON_WATCH_WEBHOOK_URL: "http://h/",
+      TON_WATCH_WEBHOOK_SECRET: "new",
+      TON_WATCH_WEBHOOK_SECRET_PREVIOUS: "old",
+      TON_WATCH_WEBHOOKS: JSON.stringify([
+        { name: "own", url: "http://h/", secret: ["own-new", "own-old"] },
+      ]),
+    });
+    expect(targets.map((t) => [t.name, t.secrets])).toEqual([
+      ["default", ["new", "old"]],
+      ["own", ["own-new", "own-old"]],
+    ]);
+  });
+
+  test("TON_WATCH_WEBHOOK_SECRET_PREVIOUS alone is an error", () => {
+    expect(() =>
+      webhooksFromEnv({
+        TON_WATCH_WEBHOOK_URL: "http://h/",
+        TON_WATCH_WEBHOOK_SECRET_PREVIOUS: "old",
+      }),
+    ).toThrow("TON_WATCH_WEBHOOK_SECRET_PREVIOUS needs TON_WATCH_WEBHOOK_SECRET");
   });
 
   test('an entry\'s "secret": null sends that target unsigned despite a global secret', () => {
@@ -83,9 +107,9 @@ describe("webhooksFromEnv", () => {
         { name: "unsigned", url: "http://h/", secret: null },
       ]),
     });
-    expect(targets.map((t) => [t.name, t.secret])).toEqual([
-      ["signed", "shared"],
-      ["unsigned", null],
+    expect(targets.map((t) => [t.name, t.secrets])).toEqual([
+      ["signed", ["shared"]],
+      ["unsigned", []],
     ]);
   });
 
@@ -151,6 +175,8 @@ describe("webhooksFromEnv", () => {
     [[{ name: "a", url: "http://h/", onError: "drop" }], "invalid TON_WATCH_WEBHOOKS[0].onError"],
     [[{ name: "a", url: "http://h/", secret: "" }], "invalid TON_WATCH_WEBHOOKS[0].secret"],
     [[{ name: "a", url: "http://h/", secret: 5 }], "invalid TON_WATCH_WEBHOOKS[0].secret"],
+    [[{ name: "a", url: "http://h/", secret: [] }], "invalid TON_WATCH_WEBHOOKS[0].secret"],
+    [[{ name: "a", url: "http://h/", secret: ["a", ""] }], "invalid TON_WATCH_WEBHOOKS[0].secret"],
     [
       [{ name: "a", url: "http://h/", retryMinMs: 5_000, retryMaxMs: 1_000 }],
       "invalid TON_WATCH_WEBHOOKS[0].retryMinMs: 5000 is above retryMaxMs (1000)",

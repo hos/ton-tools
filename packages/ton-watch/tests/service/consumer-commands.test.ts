@@ -8,6 +8,7 @@ import { Consumer } from "../../src/consumer/consumer";
 import { ConsumerLockedError } from "../../src/consumer/errors";
 import type { TxHandler } from "../../src/consumer/types";
 import { main } from "../../src/service/cli";
+import type { ConsumersResponse, DeadLettersResponse } from "../../src/service/output";
 import { PgStore } from "../../src/stores/pg/pg-store";
 import { fakeAddress } from "../fixtures/fake-chain";
 import { type ServiceHarness, setupService } from "./harness";
@@ -19,7 +20,7 @@ let h: ServiceHarness;
 let store: PgStore;
 
 const env = (extra: Record<string, string> = {}) => ({
-  DATABASE_URL: "postgres://test/db",
+  TON_WATCH_DATABASE_URL: "postgres://test/db",
   TON_WATCH_LOG: "silent",
   ...extra,
 });
@@ -80,7 +81,8 @@ async function seedConsumers() {
 describe("ton-watch consumers", () => {
   test("lists every consumer with order, lag, failing addresses and dead letters", async () => {
     await seedConsumers();
-    const consumers = await printed<Record<string, unknown>[]>(["consumers"]);
+    const { version, consumers } = await printed<ConsumersResponse>(["consumers"]);
+    expect(version).toBe(1);
     expect(consumers).toEqual([
       {
         name: "audit",
@@ -115,15 +117,16 @@ describe("ton-watch consumers", () => {
   });
 
   test("an empty database lists none", async () => {
-    expect(await printed<unknown[]>(["consumers"])).toEqual([]);
+    expect(await printed<ConsumersResponse>(["consumers"])).toEqual({ version: 1, consumers: [] });
   });
 });
 
 describe("ton-watch dead-letters, discard", () => {
   test("lists dead letters (all or one consumer's) with hex hashes, and discards one", async () => {
     const { poison } = await seedConsumers();
-    const letters = await printed<Record<string, unknown>[]>(["dead-letters"]);
-    expect(letters).toEqual([
+    const { version, deadLetters } = await printed<DeadLettersResponse>(["dead-letters"]);
+    expect(version).toBe(1);
+    expect(deadLetters).toEqual([
       {
         consumer: "payments",
         address: B,
@@ -135,7 +138,10 @@ describe("ton-watch dead-letters, discard", () => {
         lastFailureAt: expect.any(String),
       },
     ]);
-    expect(await printed<unknown[]>(["dead-letters", "audit"])).toEqual([]);
+    expect(await printed<DeadLettersResponse>(["dead-letters", "audit"])).toEqual({
+      version: 1,
+      deadLetters: [],
+    });
 
     expect(await logged(["discard", "payments", B, String(poison)])).toContain(
       `discarded dead letter ${B} lt ${poison} of payments`,
@@ -151,8 +157,8 @@ describe("ton-watch dead-letters, discard", () => {
 describe("ton-watch rewind", () => {
   test("moves every cursor, or only --address ones; clears failures, keeps dead letters", async () => {
     await seedConsumers();
-    expect(await logged(["rewind", "payments", "start"])).toContain(
-      "rewound 2 cursor(s) of payments to start",
+    expect(await logged(["rewind", "payments", "earliest"])).toContain(
+      "rewound 2 cursor(s) of payments to earliest",
     );
     expect((await store.listCursors("payments")).map((c) => [c.lt, c.attempts])).toEqual([
       [0n, 0],
@@ -171,18 +177,18 @@ describe("ton-watch rewind", () => {
 
   test("an unknown consumer or address is refused", async () => {
     await seedConsumers();
-    await expect(main(["rewind", "nobody", "start"], env())).rejects.toThrow(
+    await expect(main(["rewind", "nobody", "earliest"], env())).rejects.toThrow(
       "unknown consumer nobody",
     );
     await expect(
-      main(["rewind", "payments", "start", "--address", fakeAddress(9)], env()),
+      main(["rewind", "payments", "earliest", "--address", fakeAddress(9)], env()),
     ).rejects.toThrow("unknown address");
   });
 
   test("is refused with ConsumerLockedError while the consumer runs elsewhere", async () => {
     await seedConsumers();
     const lock = await store.lockConsumer("payments");
-    const error = await main(["rewind", "payments", "start"], env()).catch((e: unknown) => e);
+    const error = await main(["rewind", "payments", "earliest"], env()).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ConsumerLockedError);
     await lock?.release();
     expect(await store.getCursor("payments", A)).toBe(h.chain.txs(A).at(-1)!.lt);

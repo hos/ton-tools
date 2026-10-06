@@ -62,7 +62,9 @@ if (process.env.TEST_DATABASE_URL) {
 describe("PgStore construction", () => {
   test("rejects schema names that are not plain lowercase identifiers", () => {
     for (const bad of ["", "Idx", "1abc", "a-b", "a b", 'a"b', "a;b", "ton.watch", "é"]) {
-      expect(() => new PgStore(shared as any, { schema: bad })).toThrow(/invalid schema name/);
+      expect(() => new PgStore(shared as any, { schema: bad })).toThrow(
+        expect.objectContaining({ code: "INVALID_OPTION" }),
+      );
     }
     for (const ok of ["_", "a1_b", "select", "user", "ton_watch"]) {
       expect(new PgStore(shared as any, { schema: ok }).schema).toBe(ok);
@@ -82,7 +84,7 @@ describe("PgStore construction", () => {
   test("schema names longer than 63 characters are rejected", () => {
     expect(new PgStore(shared as any, { schema: "s".repeat(63) }).schema).toHaveLength(63);
     expect(() => new PgStore(shared as any, { schema: `${"s".repeat(63)}_a` })).toThrow(
-      "invalid schema name",
+      expect.objectContaining({ code: "INVALID_OPTION" }),
     );
   });
 });

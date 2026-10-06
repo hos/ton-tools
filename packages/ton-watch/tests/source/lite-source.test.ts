@@ -1,20 +1,24 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Address } from "@ton/core";
-import type { LsConfig } from "@ton/ls";
-import { type LiteClient, LiteSingleEngine } from "ton-lite-client";
+import { LiteConnection, type LsConfig } from "@ton/ls";
+import type { LiteClient } from "ton-lite-client";
 import type {
   liteServer_blockHeader,
   liteServer_blockTransactions,
   liteServer_transactionId,
   liteServer_transactionId3,
   tonNode_blockIdExt,
-} from "ton-lite-client/dist/schema";
-import { Functions } from "ton-lite-client/dist/schema";
+} from "ton-lite-client/dist/schema.js";
+import { Functions } from "ton-lite-client/dist/schema.js";
 
 import { SourceError } from "../../src/core/errors";
 import type { TxId } from "../../src/core/types";
 import { Metrics } from "../../src/metrics/metrics";
-import { LiteSource, type LiteSourceOptions } from "../../src/source/liteserver/lite-source";
+import {
+  LiteSource,
+  type LiteSourceOptions,
+  serverPoolOf,
+} from "../../src/source/liteserver/lite-source";
 import type { PoolMember } from "../../src/source/liteserver/server-pool";
 import type { ChainTip, ShardTop } from "../../src/source/source";
 import mainnet from "../fixtures/liteserver/mainnet.json";
@@ -342,10 +346,10 @@ describe("getTip", () => {
     });
     const good = tipClient([{ seqno: 7, shards: { 0: { seqno: 1, endLt: 1n } } }]);
     const source = sourceOver([broken, good]);
-    source.pool.members[1]!.latencyMs = 10_000; // the broken one is tried first
+    serverPoolOf(source).members[1]!.latencyMs = 10_000; // the broken one is tried first
     expect((await source.getTip()).seqno).toBe(7);
     expect(broken.getMasterchainInfoExt).toHaveBeenCalledTimes(1);
-    expect(source.pool.stats()[0]!.errors).toEqual({ network: 1 });
+    expect(serverPoolOf(source).stats()[0]!.errors).toEqual({ network: 1 });
   });
 });
 
@@ -401,11 +405,11 @@ describe("getLastTx", () => {
     });
     const good = mainnetClient();
     const source = sourceOver([lagging, good]);
-    source.pool.members[1]!.latencyMs = 10_000;
+    serverPoolOf(source).members[1]!.latencyMs = 10_000;
     const tip = await sourceOver([mainnetClient()]).getTip();
     const state = accountStateOf("active");
     expect((await source.getLastTx(state.address, tip))?.lt.toString()).toBe(state.expected!.lt);
-    expect(source.pool.stats()[0]!.errors).toEqual({ not_ready: 1 });
+    expect(serverPoolOf(source).stats()[0]!.errors).toEqual({ not_ready: 1 });
   });
 
   test("a malformed proof fails the call", async () => {
@@ -539,11 +543,11 @@ describe("getTransactions", () => {
     const liar = fakeClient({ getAccountTransactions: async () => pageBoc(3) });
     const honest = fakeClient({ getAccountTransactions: async () => pageBoc(2) });
     const source = sourceOver([liar, honest]);
-    source.pool.members[1]!.latencyMs = 10_000;
+    serverPoolOf(source).members[1]!.latencyMs = 10_000;
     const page = await source.getTransactions(address, pageFrom(2), 1);
     expect(page.length).toBe(1);
     expect(liar.getAccountTransactions).toHaveBeenCalledTimes(1);
-    expect(source.pool.stats()[0]!.errors).toEqual({ bad_response: 1 });
+    expect(serverPoolOf(source).stats()[0]!.errors).toEqual({ bad_response: 1 });
   });
 
   test("an empty response is an error, not an empty page", async () => {
@@ -911,22 +915,22 @@ describe("close", () => {
 
 describe("connect", () => {
   // No sockets: engines are real objects whose connection is stubbed out.
-  let ready: (engine: LiteSingleEngine) => boolean;
+  let ready: (engine: LiteConnection) => boolean;
   const spies: { mockRestore(): void }[] = [];
 
   beforeEach(() => {
     ready = () => true;
     spies.push(
       spyOn(
-        LiteSingleEngine.prototype as unknown as { connect(): void },
+        LiteConnection.prototype as unknown as { connect(): void },
         "connect",
       ).mockImplementation(() => {}),
-      spyOn(LiteSingleEngine.prototype, "isReady").mockImplementation(function (
-        this: LiteSingleEngine,
+      spyOn(LiteConnection.prototype, "isReady").mockImplementation(function (
+        this: LiteConnection,
       ) {
         return ready(this);
       }),
-      spyOn(LiteSingleEngine.prototype, "close").mockImplementation(() => {}),
+      spyOn(LiteConnection.prototype, "close").mockImplementation(() => {}),
     );
   });
   afterEach(() => {
@@ -956,22 +960,26 @@ describe("connect", () => {
       metrics,
       logger: log,
     });
-    expect(source.pool.members.map((m) => [m.id, !!m.archive])).toEqual([
+    expect(serverPoolOf(source).members.map((m) => [m.id, !!m.archive])).toEqual([
       ["tcp://10.0.0.9:9", true],
       ["tcp://10.0.0.2:2", true],
       ["tcp://192.168.0.1:1", false],
     ]);
     expect(source.metrics).toBe(metrics);
-    expect(source.pool.metrics).toBe(metrics);
-    const engine = (source.pool.members[2]!.client as LiteClient).engine as LiteSingleEngine;
+    expect(serverPoolOf(source).metrics).toBe(metrics);
+    const engine = (serverPoolOf(source).members[2]!.client as LiteClient).engine as LiteConnection;
     expect(engine.host).toBe("tcp://192.168.0.1:1");
     expect(engine.publicKey).toEqual(Buffer.alloc(32, 1));
     // The pool sees the engine's connection state.
     ready = (e) => e !== engine;
-    expect(source.pool.stats().map((s) => s.ready)).toEqual([true, true, false]);
+    expect(
+      serverPoolOf(source)
+        .stats()
+        .map((s) => s.ready),
+    ).toEqual([true, true, false]);
     expect(lines).toEqual(["liteservers: 3/3 connected (2 archival configured)"]);
     await source.close();
-    expect(LiteSingleEngine.prototype.close).toHaveBeenCalledTimes(3);
+    expect(LiteConnection.prototype.close).toHaveBeenCalledTimes(3);
   });
 
   test("defaults to the mainnet global config", async () => {
@@ -980,8 +988,8 @@ describe("connect", () => {
     try {
       const source = await LiteSource.connect();
       expect(fetchSpy.mock.calls[0]![0]).toBe("https://ton.org/global.config.json");
-      expect(source.pool.members.map((m) => m.id)).toEqual(["tcp://127.0.0.1:4924"]);
-      expect(source.pool.members[0]!.archive).toBe(false);
+      expect(serverPoolOf(source).members.map((m) => m.id)).toEqual(["tcp://127.0.0.1:4924"]);
+      expect(serverPoolOf(source).members[0]!.archive).toBe(false);
     } finally {
       fetchSpy.mockRestore();
     }
@@ -995,7 +1003,7 @@ describe("connect", () => {
     try {
       const source = await LiteSource.connect({ servers: "https://example.org/config.json" });
       expect(fetchSpy.mock.calls[0]![0]).toBe("https://example.org/config.json");
-      expect(source.pool.members.length).toBe(2);
+      expect(serverPoolOf(source).members.length).toBe(2);
     } finally {
       fetchSpy.mockRestore();
     }
@@ -1011,7 +1019,7 @@ describe("connect", () => {
       logger: log,
     });
     expect(Date.now() - started).toBeGreaterThanOrEqual(150);
-    expect(source.pool.members.length).toBe(2);
+    expect(serverPoolOf(source).members.length).toBe(2);
     expect(lines[0]).toBe("liteservers: 2/2 connected (0 archival configured)");
   });
 
@@ -1023,6 +1031,6 @@ describe("connect", () => {
     }).catch((e) => e);
     expect(err).toBeInstanceOf(SourceError);
     expect(err.kind).toBe("network");
-    expect(LiteSingleEngine.prototype.close).toHaveBeenCalledTimes(2);
+    expect(LiteConnection.prototype.close).toHaveBeenCalledTimes(2);
   });
 });

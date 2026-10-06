@@ -1,5 +1,6 @@
 import type { TxId, TxRecord } from "../core/types";
 import type { Metrics } from "../metrics/metrics";
+import type { SourceCallOptions } from "./call-options";
 
 /** Full identifier of a block. */
 export interface BlockRef {
@@ -32,21 +33,39 @@ export interface ChainTip {
   syncLt: bigint;
 }
 
+export type { SourceCallOptions };
+
+/** Options of `TxSource.findTxNear`. */
+export interface FindTxNearOptions extends SourceCallOptions {
+  /** Average lt distance between the account's transactions, to budget the search. */
+  ltPerTx?: number;
+}
+
 /**
  * Where transactions come from. `LiteSource` is the liteserver implementation; tests
- * use a fake. Every method may throw a `SourceError`.
+ * use a fake. Every method may throw a `SourceError`, and takes an optional
+ * `SourceCallOptions` whose `signal` it should honor (a source that ignores it
+ * still works; a stopping indexer then just stops waiting for it).
+ *
+ * @experimental Custom implementations are unsupported in 0.x: methods may be
+ * added in minor versions. Exported from `@ton/watch/advanced`.
  */
 export interface TxSource {
-  getTip(): Promise<ChainTip>;
+  getTip(options?: SourceCallOptions): Promise<ChainTip>;
 
   /** Last transaction of `address` as of `tip`, or null if it has none. */
-  getLastTx(address: string, tip: ChainTip): Promise<TxId | null>;
+  getLastTx(address: string, tip: ChainTip, options?: SourceCallOptions): Promise<TxId | null>;
 
   /**
    * Up to `count` transactions of `address`, newest first, starting at `from`
    * (inclusive) and walking back through prev links.
    */
-  getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]>;
+  getTransactions(
+    address: string,
+    from: TxId,
+    count: number,
+    options?: SourceCallOptions,
+  ): Promise<TxRecord[]>;
 
   /**
    * Accounts that had transactions in blocks after `prev` up to `next`, with their
@@ -57,6 +76,7 @@ export interface TxSource {
     prev: ChainTip,
     next: ChainTip,
     workchains: ReadonlySet<number>,
+    options?: SourceCallOptions,
   ): Promise<Map<string, TxId> | null>;
 
   /**
@@ -65,7 +85,7 @@ export interface TxSource {
    * (a single range is otherwise a strictly sequential walk, one page per round
    * trip). Returns null when nothing is found cheaply.
    */
-  findTxNear?(address: string, lt: bigint, hint?: { ltPerTx?: number }): Promise<TxId | null>;
+  findTxNear?(address: string, lt: bigint, options?: FindTxNearOptions): Promise<TxId | null>;
 
   /** Largest `count` that `getTransactions` honors. */
   readonly maxPageSize: number;

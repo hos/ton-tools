@@ -7,8 +7,8 @@
  *   bun run bench/archive-depth.ts [--address <addr>]
  */
 import { Address } from "@ton/core";
-import { getServers } from "@ton/ls";
-import { LiteClient, LiteSingleEngine } from "ton-lite-client";
+import { getServers, LiteConnection } from "@ton/ls";
+import { LiteClient } from "ton-lite-client";
 
 import { arg, saveResult, toncenter } from "./lib";
 
@@ -38,11 +38,10 @@ const servers = await getServers("mainnet");
 const rows = await Promise.all(
   servers.map(async (s) => {
     const host = `${ip(s.ip)}:${s.port}`;
-    const engine = new LiteSingleEngine({
+    const engine = new LiteConnection({
       host: `tcp://${host}`,
       publicKey: Buffer.from(s.id.key, "base64"),
     });
-    engine.on("error", () => {});
     const lc = new LiteClient({ engine });
     for (let i = 0; i < 80 && !engine.isReady(); i++) await new Promise((r) => setTimeout(r, 100));
     const results: Record<number, string> = {};

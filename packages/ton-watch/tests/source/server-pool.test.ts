@@ -104,3 +104,59 @@ describe("ServerPool", () => {
     expect(m.calls.length).toBe(3);
   });
 });
+
+describe("ServerPool with an AbortSignal", () => {
+  const hang: Behavior = () => new Promise<string>(() => {});
+
+  test("an abort during an attempt rejects at once with the reason and tries nothing else", async () => {
+    const a = member("a", hang);
+    const b = member("b", hang);
+    const pool = new ServerPool([a, b], { maxInFlightPerServer: 1, timeoutMs: 10_000 });
+    const controller = new AbortController();
+    const call = pool.call("m", (c) => c.run(), controller.signal);
+    await new Promise((r) => setTimeout(r, 10));
+    const reason = new Error("stopping");
+    const startedAt = performance.now();
+    controller.abort(reason);
+    expect(await call.catch((e) => e)).toBe(reason);
+    expect(performance.now() - startedAt).toBeLessThan(100);
+    expect(a.calls.length + b.calls.length).toBe(1);
+    // The abort is not held against the server.
+    expect(pool.stats().every((s) => s.coolingDownMs === 0)).toBe(true);
+  });
+
+  test("an abort while every server cools down rejects at once", async () => {
+    const m = member("limited", fail("too many requests"));
+    const pool = new ServerPool([m], { maxAttempts: 6 });
+    const controller = new AbortController();
+    const call = pool.call("m", (c) => c.run(), controller.signal);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(m.calls.length).toBe(1);
+    const startedAt = performance.now();
+    controller.abort(new Error("stopping"));
+    await expect(call).rejects.toThrow("stopping");
+    expect(performance.now() - startedAt).toBeLessThan(100);
+    expect(m.calls.length).toBe(1);
+  });
+
+  test("an abort while waiting for a free slot rejects at once", async () => {
+    const m = member("busy", hang);
+    const pool = new ServerPool([m], { maxInFlightPerServer: 1, timeoutMs: 10_000 });
+    void pool.call("m", (c) => c.run()).catch(() => {});
+    const controller = new AbortController();
+    const call = pool.call("m", (c) => c.run(), controller.signal);
+    await new Promise((r) => setTimeout(r, 10));
+    controller.abort(new Error("stopping"));
+    await expect(call).rejects.toThrow("stopping");
+    expect(m.calls.length).toBe(1);
+  });
+
+  test("an already aborted signal makes no attempt", async () => {
+    const m = member("a", ok("a"));
+    const pool = new ServerPool([m]);
+    await expect(
+      pool.call("m", (c) => c.run(), AbortSignal.abort(new Error("gone"))),
+    ).rejects.toThrow("gone");
+    expect(m.calls.length).toBe(0);
+  });
+});

@@ -2,7 +2,8 @@
   "name": "@ton/ls",
   "exports": "./src/index.ts",
   "type": "module",
-  "version": "0.0.2",
+  "version": "0.0.4",
+  "license": "MIT",
   "scripts": {
     "publish": "bunx jsr publish",
     "test": "bun test",
@@ -16,6 +17,8 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "ton-lite-client": "^3.1.1"
+    "adnl": "^1.0.3",
+    "ton-lite-client": "^3.1.1",
+    "ton-tl": "^1.0.1"
   }
 }

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "initial",
+  "transaction": true,
+  "compatibleFrom": 1,
+  "checksum": "be0014899d15d29e90399917b9f7d853f865f8bf1046b08d5bf2b6885f52d341",
+  "up": [
+    "create table $S.addresses (\n        id bigint generated always as identity primary key,\n        address text not null,\n        start_lt bigint not null default 0,\n        active boolean not null default true,\n        frontier_lt bigint,\n        frontier_hash bytea,\n        synced_lt bigint not null default 0,\n        synced_utime bigint,\n        created_at timestamptz not null default now(),\n        updated_at timestamptz not null default now(),\n        constraint addresses_address_key unique (address),\n        constraint addresses_address_check check (address ~ '^(0|-?[1-9][0-9]{0,9}):[0-9a-f]{64}$'),\n        constraint addresses_start_lt_check check (start_lt >= 0),\n        constraint addresses_synced_lt_check check (synced_lt >= 0),\n        constraint addresses_frontier_check check ((frontier_lt is null) = (frontier_hash is null)),\n        constraint addresses_frontier_hash_check check (octet_length(frontier_hash) = 32)\n      )",
+    "create table $S.transactions (\n        address_id bigint not null references $S.addresses (id) on delete cascade,\n        lt bigint not null,\n        hash bytea not null,\n        prev_lt bigint not null,\n        prev_hash bytea not null,\n        utime bigint not null,\n        boc bytea not null,\n        primary key (address_id, lt),\n        constraint transactions_hash_check check (octet_length(hash) = 32),\n        constraint transactions_prev_hash_check check (octet_length(prev_hash) = 32)\n      )",
+    "create table $S.cursors (\n        consumer text not null,\n        address_id bigint not null references $S.addresses (id) on delete cascade,\n        lt bigint not null,\n        attempts integer not null default 0,\n        last_error text,\n        first_failure_at timestamptz,\n        last_failure_at timestamptz,\n        updated_at timestamptz not null default now(),\n        primary key (consumer, address_id),\n        constraint cursors_lt_check check (lt >= 0),\n        constraint cursors_attempts_check check (attempts >= 0)\n      )",
+    "create index cursors_address_id_idx on $S.cursors (address_id)",
+    "create table $S.consumers (\n        name text primary key,\n        delivery_order text not null,\n        created_at timestamptz not null default now(),\n        updated_at timestamptz not null default now(),\n        constraint consumers_delivery_order_check check (delivery_order in ('address', 'global'))\n      )",
+    "create table $S.dead_letters (\n        consumer text not null,\n        address_id bigint not null references $S.addresses (id) on delete cascade,\n        lt bigint not null,\n        hash bytea not null,\n        error text not null,\n        attempts integer not null,\n        first_failure_at timestamptz not null,\n        last_failure_at timestamptz not null,\n        created_at timestamptz not null default now(),\n        primary key (consumer, address_id, lt),\n        constraint dead_letters_hash_check check (octet_length(hash) = 32),\n        constraint dead_letters_attempts_check check (attempts >= 0)\n      )",
+    "create index dead_letters_address_id_idx on $S.dead_letters (address_id)"
+  ]
+}

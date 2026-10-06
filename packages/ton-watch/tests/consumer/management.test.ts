@@ -144,7 +144,7 @@ for (const target of storeTargets) {
       await consumer.runOnce();
       expect(delivered.length).toBe(20);
 
-      await consumer.rewind("start");
+      await consumer.rewind("earliest");
       await consumer.runOnce();
       for (const address of [A, B]) {
         expect(keys(ofAddress(delivered.slice(20), address))).toEqual(keys(chain.txs(address)));
@@ -179,7 +179,7 @@ for (const target of storeTargets) {
         failures: 1,
       });
       broken = false;
-      await consumer.rewind("start", { addresses: [A] });
+      await consumer.rewind("earliest", { addresses: [A] });
       expect((await store.listCursors("rf")).find((c) => c.address === A)?.attempts).toBe(0);
       expect(await consumer.runOnce()).toBe(10); // not held back by the old backoff
     });
@@ -199,7 +199,7 @@ for (const target of storeTargets) {
       ).start();
       await consumer.ready();
       await until(() => delivered.length >= 10);
-      await consumer.rewind("start");
+      await consumer.rewind("earliest");
       const mark = delivered.length;
       await until(() => ofAddress(delivered.slice(mark), B).length === 30);
       await consumer.stop();
@@ -216,9 +216,9 @@ for (const target of storeTargets) {
       await running.ready();
       await until(() => delivered.length === 20);
       const other = new Consumer("busy", two, collector().handler, FAST);
-      await expect(other.rewind("start")).rejects.toBeInstanceOf(ConsumerLockedError);
+      await expect(other.rewind("earliest")).rejects.toBeInstanceOf(ConsumerLockedError);
       await running.stop();
-      await other.rewind("start");
+      await other.rewind("earliest");
       expect(await two.getCursor("busy", A)).toBe(0n);
     });
   });
@@ -270,7 +270,7 @@ for (const target of storeTargets) {
       expect(lag.transactions).toBe(0);
       expect((await new Consumer("alag", store, () => {}).lag()).transactions).toBe(0);
 
-      const perAddress = new Consumer("plag", store, () => {}, { from: "start" });
+      const perAddress = new Consumer("plag", store, () => {}, { from: "earliest" });
       await store.setCursor("plag", A, 0n);
       await store.setCursor("plag", B, 0n);
       expect((await perAddress.lag()).transactions).toBe(25);
@@ -311,7 +311,7 @@ for (const target of storeTargets) {
       expect((await watch.consumerLag("remote")).transactions).toBe(0);
       await expect(watch.consumerLag("nobody")).rejects.toThrow("unknown consumer");
 
-      await watch.rewindConsumer("remote", "start");
+      await watch.rewindConsumer("remote", "earliest");
       // Global order: only what is below the watermark (B's last transaction is above it).
       const watermark = chain.txs(A).at(-1)!.lt;
       expect((await watch.consumerLag("remote")).transactions).toBe(
@@ -371,7 +371,7 @@ for (const target of storeTargets) {
       expect(other.status().running).toBe(false);
       await running.stop();
       await watch.start();
-      await watch.stop({ closeStore: false });
+      await watch.stop();
     });
   });
 }

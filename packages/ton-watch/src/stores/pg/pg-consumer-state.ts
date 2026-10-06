@@ -4,7 +4,7 @@ import type {
   ConsumerRecord,
   CursorState,
   DeadLetter,
-  DeadLetterFilter,
+  RawDeadLetterFilter,
 } from "../consumer-state";
 
 /** Runs one statement of the store's schema (`$S`); rows are typed by the caller. */
@@ -224,7 +224,7 @@ export class PgConsumerState {
     return rows.length > 0;
   }
 
-  async listDeadLetters(filter: DeadLetterFilter = {}): Promise<DeadLetter[]> {
+  async listDeadLetters(filter: RawDeadLetterFilter = {}): Promise<DeadLetter[]> {
     const rows = await this.query<DeadLetterRow>(
       `select d.consumer, a.address, d.lt::text, d.hash, d.error, d.attempts,
          d.first_failure_at, d.last_failure_at

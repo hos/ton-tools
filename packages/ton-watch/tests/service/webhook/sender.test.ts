@@ -8,7 +8,8 @@ import {
   WebhookError,
   webhookHandler,
 } from "../../../src/service/webhook/sender";
-import { verifySignature } from "../../../src/service/webhook/signature";
+import { VERSION } from "../../../src/version";
+import { verifySignature } from "../../../src/webhook";
 import { FakeChain, fakeAddress } from "../../fixtures/fake-chain";
 
 const A = fakeAddress(1);
@@ -17,10 +18,10 @@ const ctx: HandlerContext = { consumer: "webhook:t", address: A, replay: false }
 const target = (overrides: Partial<WebhookTarget> = {}): WebhookTarget => ({
   name: "t",
   url: "http://receiver.test/hook",
-  secret: "s",
+  secrets: ["s"],
   addresses: null,
   order: "address",
-  from: "start",
+  from: "earliest",
   timeoutMs: 1_000,
   retryMinMs: 1,
   retryMaxMs: 1,
@@ -42,7 +43,7 @@ function handlerWith(respond: () => Response | Promise<Response>, overrides = {}
     requests.push({ url, init });
     return respond();
   }) as unknown as typeof fetch;
-  const handler = webhookHandler(target(overrides), { testOnly: false, fetch: fakeFetch });
+  const handler = webhookHandler(target(overrides), { fetch: fakeFetch });
   const send = (context: HandlerContext = ctx) => handler(tx(), context);
   return { requests, send };
 }
@@ -68,7 +69,19 @@ describe("webhookHandler", () => {
     expect(init.redirect).toBe("manual");
     expect(headers["content-type"]).toBe("application/json");
     expect(headers["idempotency-key"]).toBe(JSON.parse(body).id);
+    expect(headers["ton-watch-event"]).toBe("transaction");
+    expect(headers["user-agent"]).toBe(`ton-watch/${VERSION}`);
     expect(verifySignature("s", body, headers["ton-watch-signature"])).toBe(true);
+  });
+
+  test("signs with every secret while rotating", async () => {
+    const { requests, send } = handlerWith(() => new Response("ok"), { secrets: ["new", "old"] });
+    await send();
+    const headers = requests[0]!.init.headers as Record<string, string>;
+    const body = String(requests[0]!.init.body);
+    expect(headers["ton-watch-signature"]!.match(/v1=/g)).toHaveLength(2);
+    expect(verifySignature("old", body, headers["ton-watch-signature"])).toBe(true);
+    expect(verifySignature("new", body, headers["ton-watch-signature"])).toBe(true);
   });
 
   test("a replay is flagged in the body and the TON-Watch-Replay header", async () => {
@@ -87,7 +100,7 @@ describe("webhookHandler", () => {
   });
 
   test("no secret, no signature header", async () => {
-    const { requests, send } = handlerWith(() => new Response("ok"), { secret: null });
+    const { requests, send } = handlerWith(() => new Response("ok"), { secrets: [] });
     await send();
     expect(requests[0]!.init.headers).not.toHaveProperty("ton-watch-signature");
   });
@@ -122,7 +135,6 @@ describe("webhookHandler", () => {
 
   test("a timeout aborts the request and is retryable", async () => {
     const handler = webhookHandler(target({ timeoutMs: 20 }), {
-      testOnly: false,
       fetch: ((_: string, init: RequestInit) =>
         new Promise((_resolve, reject) =>
           init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),

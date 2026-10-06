@@ -18,15 +18,9 @@ bunx jsr add @ton/ls
 After installation, you can use the package in your project as follows:
 
 ```javascript
-import {
-  LiteClient,
-  type LiteEngine,
-  LiteRoundRobinEngine,
-  LiteSingleEngine,
-} from "ton-lite-client";
+import { LiteClient, type LiteEngine, LiteRoundRobinEngine } from "ton-lite-client";
 
-
-import { filterLiteServers, type LsConfig, getServers } from "@ton/ls";
+import { filterLiteServers, getServers, LiteConnection, type LsConfig } from "@ton/ls";
 
 let liteClient: LiteClient;
 let createLiteClient: Promise<void>;
@@ -58,7 +52,7 @@ export async function getLiteClient(_configUrl?: string): Promise<LiteClient> {
         const { lsConfig } = server;
 
         engines.push(
-          new LiteSingleEngine({
+          new LiteConnection({
             host: lsConfig.host,
             publicKey: lsConfig.publicKey,
           })
@@ -81,6 +75,22 @@ export async function getLiteClient(_configUrl?: string): Promise<LiteClient> {
   return liteClient;
 }
 
+```
+
+## `LiteConnection`
+
+`filterLiteServers()` closes every connection it opened before it resolves, so it
+never keeps the process alive. For your own clients, `LiteConnection` is a
+ton-lite-client `LiteEngine` for one liteserver that can be closed for good:
+`close()` cancels reconnecting and query timeouts, destroys the socket and rejects
+pending queries. ton-lite-client's `LiteSingleEngine` (3.1.x) does not, so a process
+using it does not exit after `close()`.
+
+```ts
+const engine = new LiteConnection({ host: lsConfig.host, publicKey: lsConfig.publicKey });
+const client = new LiteClient({ engine });
+// ...
+engine.close();
 ```
 
 ## Contributing

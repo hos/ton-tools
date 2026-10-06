@@ -1,4 +1,6 @@
+import { toRawAddress } from "../../core/address";
 import { analyzeChain, type ChainAnalysis } from "../../core/chain";
+import { TonWatchError } from "../../core/errors";
 import type { AddressState, Gap, TxId, TxRecord } from "../../core/types";
 import type {
   Backlog,
@@ -36,7 +38,8 @@ export class MemoryStore implements Store {
   async migrate(): Promise<void> {}
   async close(): Promise<void> {}
 
-  async addAddress(address: string, options: AddAddressOptions): Promise<void> {
+  async addAddress(input: string, options: AddAddressOptions): Promise<void> {
+    const address = toRawAddress(input);
     const existing = this.entries.get(address);
     if (existing) {
       existing.state.active = true;
@@ -57,7 +60,8 @@ export class MemoryStore implements Store {
     });
   }
 
-  async removeAddress(address: string, options?: { purge?: boolean }): Promise<void> {
+  async removeAddress(input: string, options?: { purge?: boolean }): Promise<void> {
+    const address = toRawAddress(input);
     if (options?.purge) {
       this.entries.delete(address);
       this.consumerState.forgetAddress(address);
@@ -68,7 +72,7 @@ export class MemoryStore implements Store {
   }
 
   async getAddress(address: string): Promise<AddressState | null> {
-    const entry = this.entries.get(address);
+    const entry = this.entries.get(toRawAddress(address));
     return entry ? this.snapshot(entry) : null;
   }
 
@@ -83,14 +87,14 @@ export class MemoryStore implements Store {
     let inserted = 0;
     for (const tx of txs) {
       if (tx.lt <= entry.state.startLt || entry.txs.has(tx.lt)) continue;
-      entry.txs.set(tx.lt, tx);
+      entry.txs.set(tx.lt, { ...tx, address: entry.state.address });
       inserted++;
     }
     if (inserted > 0) entry.sorted = null;
     return inserted;
   }
 
-  async findGaps(address: string, limit = DEFAULT_GAP_LIMIT): Promise<Gap[]> {
+  async findGaps(address: string, limit: number = DEFAULT_GAP_LIMIT): Promise<Gap[]> {
     return this.analyze(this.entry(address)).gaps.slice(0, limit);
   }
 
@@ -103,7 +107,7 @@ export class MemoryStore implements Store {
 
   async markSynced(addresses: string[], syncLt: bigint, utime: number): Promise<void> {
     for (const address of addresses) {
-      const entry = this.entries.get(address);
+      const entry = this.entries.get(toRawAddress(address));
       if (!entry) continue;
       const head = this.sorted(entry).at(-1);
       if ((head?.lt ?? null) !== (entry.state.frontier?.lt ?? null)) continue;
@@ -125,11 +129,11 @@ export class MemoryStore implements Store {
   }
 
   getCursor(consumer: string, address: string): Promise<bigint | null> {
-    return this.consumerState.getCursor(consumer, address);
+    return this.consumerState.getCursor(consumer, toRawAddress(address));
   }
 
   setCursor(consumer: string, address: string, lt: bigint): Promise<void> {
-    return this.consumerState.setCursor(consumer, address, lt);
+    return this.consumerState.setCursor(consumer, toRawAddress(address), lt);
   }
 
   compareAndSetCursor(
@@ -138,7 +142,7 @@ export class MemoryStore implements Store {
     expected: bigint | null,
     lt: bigint,
   ): Promise<boolean> {
-    return this.consumerState.compareAndSetCursor(consumer, address, expected, lt);
+    return this.consumerState.compareAndSetCursor(consumer, toRawAddress(address), expected, lt);
   }
 
   listCursors(consumer?: string): Promise<CursorState[]> {
@@ -146,7 +150,7 @@ export class MemoryStore implements Store {
   }
 
   recordFailure(consumer: string, address: string, error: string): Promise<CursorState | null> {
-    return this.consumerState.recordFailure(consumer, address, error);
+    return this.consumerState.recordFailure(consumer, toRawAddress(address), error);
   }
 
   saveConsumer(name: string, order: ConsumerOrder): Promise<void> {
@@ -162,19 +166,23 @@ export class MemoryStore implements Store {
   }
 
   putDeadLetter(letter: DeadLetter): Promise<void> {
-    return this.consumerState.putDeadLetter(letter);
+    return this.consumerState.putDeadLetter({ ...letter, address: toRawAddress(letter.address) });
   }
 
   updateDeadLetter(letter: DeadLetter): Promise<boolean> {
-    return this.consumerState.updateDeadLetter(letter);
+    return this.consumerState.updateDeadLetter({
+      ...letter,
+      address: toRawAddress(letter.address),
+    });
   }
 
-  listDeadLetters(filter?: DeadLetterFilter): Promise<DeadLetter[]> {
-    return this.consumerState.listDeadLetters(filter);
+  listDeadLetters(filter: DeadLetterFilter = {}): Promise<DeadLetter[]> {
+    const address = filter.address === undefined ? undefined : toRawAddress(filter.address);
+    return this.consumerState.listDeadLetters({ ...filter, address });
   }
 
   deleteDeadLetter(consumer: string, address: string, lt: bigint): Promise<boolean> {
-    return this.consumerState.deleteDeadLetter(consumer, address, lt);
+    return this.consumerState.deleteDeadLetter(consumer, toRawAddress(address), lt);
   }
 
   backlog(consumer: string, uptoLt?: bigint): Promise<Backlog[]> {
@@ -193,9 +201,10 @@ export class MemoryStore implements Store {
     return count;
   }
 
+  /** The entry of a tracked address; throws `UNKNOWN_ADDRESS` for any other. */
   private entry(address: string): AddressEntry {
-    const entry = this.entries.get(address);
-    if (!entry) throw new Error(`unknown address ${address}`);
+    const entry = this.entries.get(toRawAddress(address));
+    if (!entry) throw new TonWatchError("UNKNOWN_ADDRESS", `unknown address ${address}`);
     return entry;
   }
 

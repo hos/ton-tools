@@ -17,7 +17,7 @@ import { PgStore } from "../../src/stores/pg/pg-store";
 import type { Store } from "../../src/stores/store";
 import { sleep } from "../../src/util/async";
 import { FakeChain, fakeAddress } from "../fixtures/fake-chain";
-import { cleanUpStoreTargets, storeTargets } from "../fixtures/store-targets";
+import { cleanUpStoreTargets, pgDatabaseOf, storeTargets } from "../fixtures/store-targets";
 
 const A = fakeAddress(1);
 const B = fakeAddress(2);
@@ -352,7 +352,7 @@ describe("PgStore (postgres): a cursor moved elsewhere", () => {
     const chain = await indexed(store);
     const txs = chain.txs(A);
     const schema = (store as PgStore).schema;
-    const db = (store as PgStore).db;
+    const db = pgDatabaseOf(store as PgStore);
     await db.query(`create table "${schema}".effects (lt bigint primary key)`);
     let movedElsewhere = false;
     const consumer = new Consumer(

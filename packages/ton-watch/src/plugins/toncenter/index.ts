@@ -2,7 +2,7 @@
  * toncenter as a history plug-in for ton-watch. Imported separately and entirely
  * optional:
  *
- *   import { ToncenterHistory } from "ton-watch/toncenter";
+ *   import { ToncenterHistory } from "@ton/watch/toncenter";
  *   new TonWatch({ store, source, history: { source: new ToncenterHistory({ apiKey }) } });
  *
  * Experimental: covered by unit tests against a recorded toncenter response and by

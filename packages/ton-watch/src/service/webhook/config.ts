@@ -8,15 +8,17 @@ export interface WebhookTarget {
   name: string;
   url: string;
   /**
-   * HMAC-SHA256 signing secret; null sends unsigned requests. An entry's
-   * `"secret": null` turns signing off for that target despite a global secret.
+   * HMAC-SHA256 signing secrets, current first; each adds a `v1=` signature, so
+   * a receiver keeps verifying while a secret is rotated. Empty sends unsigned
+   * requests. An entry's `"secret": null` turns signing off for that target
+   * despite a global secret.
    */
-  secret: string | null;
+  secrets: string[];
   /** Raw addresses to deliver; null for every tracked address. */
   addresses: string[] | null;
   order: "address" | "global";
   /** Where a target begins on its first run; later runs resume from the stored cursor. */
-  from: "start" | "now" | bigint;
+  from: "earliest" | "now" | bigint;
   /** Per-request timeout. */
   timeoutMs: number;
   /** First retry delay after a failed request; doubles per failure up to `retryMaxMs`. */
@@ -93,10 +95,10 @@ function defaultsFromEnv(env: Env): TargetDefaults {
   const ms = (name: string, fallback: number) =>
     integerInRange(name, env[name], fallback, 1, MAX_MS);
   return {
-    secret: env.TON_WATCH_WEBHOOK_SECRET ?? null,
+    secrets: secretsFromEnv(env),
     addresses: null,
     order: oneOf("TON_WATCH_WEBHOOK_ORDER", env.TON_WATCH_WEBHOOK_ORDER ?? "address", ORDERS),
-    from: parseWebhookFrom("TON_WATCH_WEBHOOK_FROM", env.TON_WATCH_WEBHOOK_FROM ?? "start"),
+    from: parseWebhookFrom("TON_WATCH_WEBHOOK_FROM", env.TON_WATCH_WEBHOOK_FROM ?? "earliest"),
     timeoutMs: ms("TON_WATCH_WEBHOOK_TIMEOUT_MS", DEFAULT_TIMEOUT_MS),
     retryMinMs: ms("TON_WATCH_WEBHOOK_RETRY_MIN_MS", DEFAULT_RETRY_MIN_MS),
     retryMaxMs: ms("TON_WATCH_WEBHOOK_RETRY_MAX_MS", DEFAULT_RETRY_MAX_MS),
@@ -113,6 +115,15 @@ function defaultsFromEnv(env: Env): TargetDefaults {
       MAX_ATTEMPTS,
     ),
   };
+}
+
+/** `TON_WATCH_WEBHOOK_SECRET`, then `TON_WATCH_WEBHOOK_SECRET_PREVIOUS` while rotating. */
+function secretsFromEnv(env: Env): string[] {
+  const { TON_WATCH_WEBHOOK_SECRET: current, TON_WATCH_WEBHOOK_SECRET_PREVIOUS: previous } = env;
+  if (previous !== undefined && current === undefined) {
+    throw new Error("TON_WATCH_WEBHOOK_SECRET_PREVIOUS needs TON_WATCH_WEBHOOK_SECRET");
+  }
+  return [current, previous].filter((secret): secret is string => secret !== undefined);
 }
 
 /** Rejects a first retry delay longer than the longest one. */
@@ -173,7 +184,7 @@ function parseTarget(entry: unknown, index: number, defaults: TargetDefaults): W
   const target: WebhookTarget = {
     name,
     url: parseUrl(`${where}.url`, url),
-    secret: parseSecret(where, fields.secret, defaults.secret),
+    secrets: parseSecrets(where, fields.secret, defaults.secrets),
     addresses: parseAddresses(where, fields.addresses),
     order: order === undefined ? defaults.order : oneOf(`${where}.order`, order, ORDERS),
     from: from === undefined ? defaults.from : parseWebhookFrom(`${where}.from`, from),
@@ -190,14 +201,20 @@ function parseTarget(entry: unknown, index: number, defaults: TargetDefaults): W
   return target;
 }
 
-/** A non-empty string, `null` for unsigned, or the default when absent. */
-function parseSecret(where: string, value: unknown, fallback: string | null): string | null {
+/**
+ * A non-empty string, a non-empty array of them (current first, while rotating),
+ * `null` for unsigned, or the default when absent.
+ */
+function parseSecrets(where: string, value: unknown, fallback: string[]): string[] {
   if (value === undefined) return fallback;
-  if (value === null) return null;
-  if (typeof value !== "string" || value === "") {
-    throw new Error(`invalid ${where}.secret: a non-empty string, or null for unsigned requests`);
+  if (value === null) return [];
+  const secrets = Array.isArray(value) ? value : [value];
+  if (secrets.length === 0 || !secrets.every((secret) => typeof secret === "string" && secret)) {
+    throw new Error(
+      `invalid ${where}.secret: a non-empty string or array of them, or null for unsigned requests`,
+    );
   }
-  return value;
+  return secrets as string[];
 }
 
 function parseAddresses(where: string, value: unknown): string[] | null {
@@ -228,9 +245,9 @@ function parseUrl(name: string, value: string): string {
   return url.href;
 }
 
-/** `start`, `now` or an lt. */
+/** `earliest`, `now` or an lt. */
 function parseWebhookFrom(name: string, value: string): WebhookTarget["from"] {
-  if (value === "start" || value === "now") return value;
+  if (value === "earliest" || value === "now") return value;
   if (/^\d+$/.test(value)) return BigInt(value);
-  throw new Error(`invalid ${name}: ${value} (start | now | <lt>)`);
+  throw new Error(`invalid ${name}: ${value} (earliest | now | <lt>)`);
 }

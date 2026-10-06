@@ -7,13 +7,13 @@
  * chain is complete and every (lt, hash) matches toncenter.
  */
 import { describe, expect, test } from "bun:test";
-
+import { toRawAddress as toRaw } from "../src/core/address";
 import { analyzeChain } from "../src/core/chain";
 import { Indexer } from "../src/indexer/indexer";
 import { ToncenterHistory } from "../src/plugins/toncenter";
 import { LiteSource } from "../src/source/liteserver/lite-source";
 import { MemoryStore } from "../src/stores/memory/memory-store";
-import { toRaw } from "../src/ton-watch";
+import { runCloseAndExit } from "./fixtures/liteserver/run-close-and-exit";
 
 const LIVE = process.env.LIVE === "1";
 // STON.fi v1 router: thousands of transactions a day.
@@ -88,5 +88,12 @@ describe.skipIf(!LIVE)("live mainnet", () => {
     expect(page[0]!.lt).toBe(old.lt);
     expect(page.length).toBe(100);
     await source.close();
+  }, 120_000);
+
+  test("the process exits right after close() while indexing a busy address", async () => {
+    const result = await runCloseAndExit({ ADDRESS, RUN_MS: "5000" }, 90_000);
+    expect(result.exitCode).toBe(0);
+    expect(result.exitMsAfterClose).not.toBeNull();
+    expect(result.exitMsAfterClose!).toBeLessThan(3_000);
   }, 120_000);
 });

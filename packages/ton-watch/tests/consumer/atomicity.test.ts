@@ -7,6 +7,7 @@ import type { IndexedTx } from "../../src/core/types";
 import type { PgDatabase, PgQueryable } from "../../src/stores/pg/database";
 import { PgStore } from "../../src/stores/pg/pg-store";
 import { FakeChain, fakeAddress } from "../fixtures/fake-chain";
+import { pgDatabaseOf } from "../fixtures/store-targets";
 
 /**
  * Exactly-once effects with `PgStore`: a handler's writes through `ctx.db` commit in
@@ -72,7 +73,7 @@ for (const [name, target] of targets) {
     let chain: FakeChain;
 
     const effects = async (address?: string) => {
-      const { rows } = await store.db.query(
+      const { rows } = await pgDatabaseOf(store).query(
         `select lt::text from "${schema}".effects ${address ? "where address = $1" : ""} order by lt`,
         address ? [address] : [],
       );
@@ -92,7 +93,7 @@ for (const [name, target] of targets) {
       ({ open, schema } = await target());
       store = new PgStore(open(), { schema });
       await store.migrate();
-      await store.db.query(
+      await pgDatabaseOf(store).query(
         `create table "${schema}".effects (lt bigint primary key, address text not null)`,
       );
       chain = new FakeChain();
@@ -116,7 +117,7 @@ for (const [name, target] of targets) {
       expect(await store.getCursor("app", A)).toBe(lts(A).at(-1)!);
       expect(await store.getCursor("app", B)).toBe(lts(B).at(-1)!);
       // Every delivery ran inside a transaction client, not on the pool itself.
-      expect(contexts.every((db) => db != null && db !== store.db)).toBe(true);
+      expect(contexts.every((db) => db != null && db !== pgDatabaseOf(store))).toBe(true);
     });
 
     test("a handler that throws after writing leaves neither effect nor cursor", async () => {
@@ -146,7 +147,7 @@ for (const [name, target] of targets) {
     test("a failing SQL statement in the handler rolls back cleanly", async () => {
       // Pre-existing effect row: the handler's insert hits the primary key.
       const clash = lts(A)[3]!;
-      await store.db.query(`insert into "${schema}".effects values ($1, 'other')`, [
+      await pgDatabaseOf(store).query(`insert into "${schema}".effects values ($1, 'other')`, [
         clash.toString(),
       ]);
       const c = new Consumer("app", store, record, { ...FAST_RETRY, addresses: [A] });
@@ -154,7 +155,7 @@ for (const [name, target] of targets) {
       expect(await store.getCursor("app", A)).toBe(lts(A)[2]!);
       expect((await effects(A)).length).toBe(3);
 
-      await store.db.query(`delete from "${schema}".effects where address = 'other'`);
+      await pgDatabaseOf(store).query(`delete from "${schema}".effects where address = 'other'`);
       await Bun.sleep(5);
       await drain(c);
       expect(await effects(A)).toEqual(lts(A));
@@ -162,19 +163,21 @@ for (const [name, target] of targets) {
 
     test("a failing cursor write rolls back the handler's effects", async () => {
       const failAt = lts(A)[7]!;
-      await store.db.query(`create function "${schema}".refuse() returns trigger as $$
+      await pgDatabaseOf(store).query(`create function "${schema}".refuse() returns trigger as $$
         begin
           if new.lt = ${failAt} then raise exception 'cursor write refused'; end if;
           return new;
         end $$ language plpgsql`);
-      await store.db.query(`create trigger refuse before insert or update on "${schema}".cursors
+      await pgDatabaseOf(
+        store,
+      ).query(`create trigger refuse before insert or update on "${schema}".cursors
         for each row execute function "${schema}".refuse()`);
       const c = new Consumer("app", store, record, { ...FAST_RETRY, addresses: [A] });
       await c.runOnce();
       expect(await effects(A)).toEqual(lts(A).slice(0, 7));
       expect(await store.getCursor("app", A)).toBe(lts(A)[6]!);
 
-      await store.db.query(`drop trigger refuse on "${schema}".cursors`);
+      await pgDatabaseOf(store).query(`drop trigger refuse on "${schema}".cursors`);
       await Bun.sleep(5);
       await drain(c);
       expect(await effects(A)).toEqual(lts(A));
@@ -237,12 +240,14 @@ for (const [name, target] of targets) {
     });
 
     test("transactional: false gives no ctx.db and commits effects at least once", async () => {
-      await store.db.query(`create table "${schema}".log (lt bigint not null)`);
+      await pgDatabaseOf(store).query(`create table "${schema}".log (lt bigint not null)`);
       const failAt = lts(A)[2]!;
       let failures = 0;
       const handler: TxHandler = async (tx, ctx) => {
         expect(ctx.db).toBeUndefined();
-        await store.db.query(`insert into "${schema}".log values ($1)`, [tx.lt.toString()]);
+        await pgDatabaseOf(store).query(`insert into "${schema}".log values ($1)`, [
+          tx.lt.toString(),
+        ]);
         if (tx.lt === failAt && failures++ === 0) throw new Error("once");
       };
       const c = new Consumer("plain", store, handler, {
@@ -253,7 +258,7 @@ for (const [name, target] of targets) {
       await c.runOnce();
       await Bun.sleep(5);
       await drain(c);
-      const { rows } = await store.db.query(
+      const { rows } = await pgDatabaseOf(store).query(
         `select lt::text, count(*)::int as n from "${schema}".log group by lt order by lt`,
       );
       const counts = rows as { lt: string; n: number }[];

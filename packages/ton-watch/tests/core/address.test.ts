@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import { Address } from "@ton/core";
+
 import { abbreviateAddress, toRawAddress, workchainOf } from "../../src/core/address";
+import { isTonWatchError } from "../../src/core/errors";
 
 const RAW = "0:584ee61b2dff0837116d0fcb5078d93964bcbe9c05fd6a141b1bfca5d6a43e18";
 const ELECTOR = `-1:${"33".repeat(32)}`;
@@ -9,6 +12,7 @@ describe("toRawAddress", () => {
   test.each([
     ["raw", RAW],
     ["raw, uppercase hex", RAW.toUpperCase()],
+    ["raw, zero-padded workchain", `00:${RAW.slice(2)}`],
     ["bounceable, url-safe", "EQBYTuYbLf8INxFtD8tQeNk5ZLy-nAX9ahQbG_yl1qQ-GEMS"],
     ["bounceable, standard base64", "EQBYTuYbLf8INxFtD8tQeNk5ZLy+nAX9ahQbG/yl1qQ+GEMS"],
     ["non-bounceable", "UQBYTuYbLf8INxFtD8tQeNk5ZLy-nAX9ahQbG_yl1qQ-GB7X"],
@@ -16,6 +20,10 @@ describe("toRawAddress", () => {
     ["testnet non-bounceable", "0QBYTuYbLf8INxFtD8tQeNk5ZLy-nAX9ahQbG_yl1qQ-GKVd"],
   ])("%s normalizes to the same raw form", (_, input) => {
     expect(toRawAddress(input)).toBe(RAW);
+  });
+
+  test("accepts an @ton/core Address", () => {
+    expect(toRawAddress(Address.parse(RAW))).toBe(RAW);
   });
 
   test("masterchain addresses keep workchain -1", () => {
@@ -32,7 +40,13 @@ describe("toRawAddress", () => {
     ["truncated friendly", "EQBYTuYbLf8INxFtD8tQeNk5ZLy"],
     ["no workchain", "584ee61b2dff0837116d0fcb5078d93964bcbe9c05fd6a141b1bfca5d6a43e18"],
   ])("rejects %s", (_, input) => {
-    expect(() => toRawAddress(input)).toThrow();
+    let thrown: unknown;
+    try {
+      toRawAddress(input);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(isTonWatchError(thrown, "INVALID_ADDRESS")).toBe(true);
   });
 });
 
