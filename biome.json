@@ -33,6 +33,9 @@
       "preset": "recommended",
       "style": {
         "noNonNullAssertion": "off"
+      },
+      "suspicious": {
+        "noFocusedTests": "error"
       }
     }
   },
