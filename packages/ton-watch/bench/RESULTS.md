@@ -80,3 +80,4 @@ Measured 2026-10-06: `getTransactions` for real transactions of `EQBYTuYbLf8INxF
 | run | outage | split | store | tx | minutes | tx/s | calls | calls/s | complete | stuck ranges |
 |---|---:|:---:|---|---:|---:|---:|---:|---:|:---:|---:|
 | after-7d | 7d | on | postgres | 709477 | 8.5 | 1,396 | 67803 | 133 | 10/10 | 0 |
+| before-7d | 7d | off | postgres | 709710 | 28.1 | 422 | 44395 | 26.4 | 10/10 | 0 |

@@ -1,0 +1,11 @@
+store: postgres schema bench_outage_49d_1791292609843
+  30.0s: 816 tx (27.2 tx/s), 3219 calls, walks 10, stuck 0
+  60.0s: 992 tx (16.5 tx/s), 6087 calls, walks 10, stuck 0
+  90.0s: 24688 tx (274 tx/s), 13641 calls, walks 10, stuck 0
+  120s: 104639 tx (872 tx/s), 19019 calls, walks 10, stuck 0
+  150s: 171868 tx (1,145 tx/s), 23634 calls, walks 10, stuck 0
+  180s: 255215 tx (1,417 tx/s), 29247 calls, walks 10, stuck 0
+  210s: 340911 tx (1,622 tx/s), 34925 calls, walks 10, stuck 0
+  240s: 421119 tx (1,753 tx/s), 40244 calls, walks 10, stuck 0
+  270s: 508607 tx (1,882 tx/s), 46009 calls, walks 10, stuck 0
+  300s: 605439 tx (2,017 tx/s), 52450 calls, walks 10, stuck 0
