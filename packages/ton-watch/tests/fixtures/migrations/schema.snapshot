@@ -1,0 +1,81 @@
+table addresses
+  column id bigint not null identity always
+  column address text not null
+  column start_lt bigint not null default 0
+  column active boolean not null default true
+  column frontier_lt bigint
+  column frontier_hash bytea
+  column synced_lt bigint not null default 0
+  column synced_utime bigint
+  column created_at timestamp with time zone not null default now()
+  column updated_at timestamp with time zone not null default now()
+  constraint addresses_address_check CHECK ((address ~ '^-?[0-9]{1,10}:[0-9a-fA-F]{64}$'::text))
+  constraint addresses_address_key UNIQUE (address)
+  constraint addresses_frontier_check CHECK (((frontier_lt IS NULL) = (frontier_hash IS NULL)))
+  constraint addresses_frontier_hash_check CHECK ((octet_length(frontier_hash) = 32))
+  constraint addresses_pkey PRIMARY KEY (id)
+  constraint addresses_start_lt_check CHECK ((start_lt >= 0))
+  constraint addresses_synced_lt_check CHECK ((synced_lt >= 0))
+  index addresses_address_key CREATE UNIQUE INDEX addresses_address_key ON $S.addresses USING btree (address)
+  index addresses_pkey CREATE UNIQUE INDEX addresses_pkey ON $S.addresses USING btree (id)
+sequence addresses_id_seq
+table consumers
+  column name text not null
+  column delivery_order text not null
+  column created_at timestamp with time zone not null default now()
+  column updated_at timestamp with time zone not null default now()
+  constraint consumers_delivery_order_check CHECK ((delivery_order = ANY (ARRAY['address'::text, 'global'::text])))
+  constraint consumers_pkey PRIMARY KEY (name)
+  index consumers_pkey CREATE UNIQUE INDEX consumers_pkey ON $S.consumers USING btree (name)
+table cursors
+  column consumer text not null
+  column address_id bigint not null
+  column lt bigint not null
+  column attempts integer not null default 0
+  column last_error text
+  column first_failure_at timestamp with time zone
+  column last_failure_at timestamp with time zone
+  column updated_at timestamp with time zone not null default now()
+  constraint cursors_address_id_fkey FOREIGN KEY (address_id) REFERENCES $S.addresses(id) ON DELETE CASCADE
+  constraint cursors_attempts_check CHECK ((attempts >= 0))
+  constraint cursors_lt_check CHECK ((lt >= 0))
+  constraint cursors_pkey PRIMARY KEY (consumer, address_id)
+  index cursors_address_id_idx CREATE INDEX cursors_address_id_idx ON $S.cursors USING btree (address_id)
+  index cursors_pkey CREATE UNIQUE INDEX cursors_pkey ON $S.cursors USING btree (consumer, address_id)
+table dead_letters
+  column consumer text not null
+  column address_id bigint not null
+  column lt bigint not null
+  column hash bytea not null
+  column error text not null
+  column attempts integer not null
+  column first_failure_at timestamp with time zone not null
+  column last_failure_at timestamp with time zone not null
+  column created_at timestamp with time zone not null default now()
+  constraint dead_letters_address_id_fkey FOREIGN KEY (address_id) REFERENCES $S.addresses(id) ON DELETE CASCADE
+  constraint dead_letters_attempts_check CHECK ((attempts >= 0))
+  constraint dead_letters_hash_check CHECK ((octet_length(hash) = 32))
+  constraint dead_letters_pkey PRIMARY KEY (consumer, address_id, lt)
+  index dead_letters_address_id_idx CREATE INDEX dead_letters_address_id_idx ON $S.dead_letters USING btree (address_id)
+  index dead_letters_pkey CREATE UNIQUE INDEX dead_letters_pkey ON $S.dead_letters USING btree (consumer, address_id, lt)
+table schema_migrations
+  column version integer not null
+  column name text not null
+  column checksum text not null
+  column compatible_from integer not null
+  column applied_at timestamp with time zone not null default now()
+  constraint schema_migrations_pkey PRIMARY KEY (version)
+  index schema_migrations_pkey CREATE UNIQUE INDEX schema_migrations_pkey ON $S.schema_migrations USING btree (version)
+table transactions
+  column address_id bigint not null
+  column lt bigint not null
+  column hash bytea not null
+  column prev_lt bigint not null
+  column prev_hash bytea not null
+  column utime bigint not null
+  column boc bytea not null
+  constraint transactions_address_id_fkey FOREIGN KEY (address_id) REFERENCES $S.addresses(id) ON DELETE CASCADE
+  constraint transactions_hash_check CHECK ((octet_length(hash) = 32))
+  constraint transactions_pkey PRIMARY KEY (address_id, lt)
+  constraint transactions_prev_hash_check CHECK ((octet_length(prev_hash) = 32))
+  index transactions_pkey CREATE UNIQUE INDEX transactions_pkey ON $S.transactions USING btree (address_id, lt)

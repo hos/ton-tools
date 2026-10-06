@@ -69,6 +69,7 @@ export {
   type PgSession,
   poolDatabase,
 } from "./stores/pg/database";
+export { MigrationError, type MigrationErrorCode } from "./stores/pg/migrator";
 export { PgStore, type PgStoreOptions } from "./stores/pg/pg-store";
 export type {
   AddAddressOptions as StoreAddAddressOptions,

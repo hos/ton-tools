@@ -7,7 +7,6 @@ import { PGlite } from "@electric-sql/pglite";
 
 import type { DeadLetter } from "../../src/stores/consumer-state";
 import type { PgDatabase } from "../../src/stores/pg/database";
-import { migrations } from "../../src/stores/pg/migrations";
 import { PgStore } from "../../src/stores/pg/pg-store";
 import type { Store } from "../../src/stores/store";
 import { FakeChain, fakeAddress } from "../fixtures/fake-chain";
@@ -241,23 +240,14 @@ for (const target of storeTargets) {
   });
 }
 
-describe("PgStore: upgrading a v1 schema keeps consumer positions", () => {
-  test("cursors survive with no failures recorded; the new tables are empty", async () => {
+describe("PgStore: a cursor written without a registered consumer", () => {
+  test("is listed with no failures and no order", async () => {
     const db = new PGlite() as unknown as PgDatabase;
-    const original = [...migrations];
-    migrations.splice(1);
-    try {
-      const v1 = new PgStore(db);
-      await v1.migrate();
-      await v1.addAddress(A, { startLt: 0n });
-      // As v1 wrote it (today's setCursor also resets the v2 columns).
-      await db.query(`insert into ton_watch.cursors (consumer, address_id, lt)
-        select 'c', id, 42 from ton_watch.addresses`);
-    } finally {
-      migrations.splice(0, migrations.length, ...original);
-    }
     const store = new PgStore(db);
     await store.migrate();
+    await store.addAddress(A, { startLt: 0n });
+    await db.query(`insert into ton_watch.cursors (consumer, address_id, lt)
+      select 'c', id, 42 from ton_watch.addresses`);
     expect(await store.listCursors()).toMatchObject([{ consumer: "c", lt: 42n, attempts: 0 }]);
     expect(await store.listConsumers()).toMatchObject([{ name: "c", order: null }]);
     expect(await store.listDeadLetters()).toEqual([]);

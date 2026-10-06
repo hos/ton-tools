@@ -13,7 +13,8 @@ import type {
 import type { AddAddressOptions, Store, StoreTransaction } from "../store";
 import { acquireConsumerLock } from "./consumer-lock";
 import { type PgDatabase, type PgQueryable, poolDatabase } from "./database";
-import { migrations, SCHEMA_PLACEHOLDER } from "./migrations";
+import { SCHEMA_PLACEHOLDER } from "./migrations";
+import { migrateSchema } from "./migrator";
 import { PgConsumerState } from "./pg-consumer-state";
 
 export interface PgStoreOptions {
@@ -124,30 +125,12 @@ export class PgStore implements Store {
 
   /**
    * Creates the schema and applies pending migrations. Safe to run from several
-   * processes at once: everything happens under one advisory lock, because
-   * `create ... if not exists` alone races on a fresh database.
+   * processes at once. Throws `MigrationError` instead of touching a schema whose
+   * history does not match this version's: an edited migration, or a schema
+   * migrated by a newer ton-watch that marked its changes incompatible with this one.
    */
   async migrate(): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      const run = <Row>(sql: string, params?: unknown[]) => this.query<Row>(sql, params, tx);
-      await run(`select pg_advisory_xact_lock(hashtext($1))`, [`ton_watch:${this.schema}`]);
-      await run(`create schema if not exists $S`);
-      await run(`create table if not exists $S.schema_migrations (
-        version integer primary key,
-        name text not null,
-        applied_at timestamptz not null default now()
-      )`);
-      const applied = await run<{ version: number }>(`select version from $S.schema_migrations`);
-      const appliedVersions = new Set(applied.map((row) => Number(row.version)));
-      for (const migration of migrations) {
-        if (appliedVersions.has(migration.version)) continue;
-        for (const statement of migration.up) await run(statement);
-        await run(`insert into $S.schema_migrations (version, name) values ($1, $2)`, [
-          migration.version,
-          migration.name,
-        ]);
-      }
-    });
+    await migrateSchema(this.db, this.schema);
   }
 
   async close(): Promise<void> {

@@ -240,7 +240,9 @@ configured [webhooks](#webhooks), until SIGINT/SIGTERM, then finishes in-flight
 work and exits (0; 1 if stopping fails or takes over 30s; a second signal exits 1
 at once). The HTTP port is bound before any work starts, so a port in use exits 1
 right away. It never drops data: schema changes are
-versioned migrations (`<schema>.schema_migrations`).
+versioned, append-only migrations (`<schema>.schema_migrations`); see
+[docs/migrations.md](docs/migrations.md) for the rules and what happens during a
+rolling deploy.
 
 ```sh
 DATABASE_URL=postgres://… bun run start
@@ -538,6 +540,9 @@ Postgres tables in schema `ton_watch`: `addresses`, `transactions`
 (primary key `(address_id, lt)`, which serves ordered reads, prev-link lookups and
 gap floors — no other index needed), `cursors` (with the failure state of the
 transaction after each cursor), `consumers`, `dead_letters`, `schema_migrations`.
+Schema changes follow [docs/migrations.md](docs/migrations.md): never destructive,
+safe to run from several processes at once, and checked against frozen copies of
+every released migration.
 
 Size: a transaction is stored as its BOC (667 bytes on average in our
 benchmarks) plus ~110 bytes of row data and index — roughly **1 GB per million
