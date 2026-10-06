@@ -19,6 +19,7 @@ describe("configFromEnv defaults", () => {
       detect: "auto",
       logLevel: "info",
       history: null,
+      webhooks: [],
     });
   });
 
@@ -38,6 +39,14 @@ describe("configFromEnv defaults", () => {
         "TON_WATCH_HISTORY_MODE",
         "TONCENTER_API_KEY",
         "TONCENTER_ENDPOINT",
+        "TON_WATCH_WEBHOOK_URL",
+        "TON_WATCH_WEBHOOKS",
+        "TON_WATCH_WEBHOOK_SECRET",
+        "TON_WATCH_WEBHOOK_ORDER",
+        "TON_WATCH_WEBHOOK_FROM",
+        "TON_WATCH_WEBHOOK_TIMEOUT_MS",
+        "TON_WATCH_WEBHOOK_RETRY_MIN_MS",
+        "TON_WATCH_WEBHOOK_RETRY_MAX_MS",
       ].map((name) => [name, ""]),
     );
     expect(configFromEnv({ ...base, ...empty })).toEqual(configFromEnv(base));

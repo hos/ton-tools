@@ -65,8 +65,13 @@ const consumer = watch.process(name, handler, {
   batchSize: 100,
   concurrency: 8,       // addresses processed in parallel ("address" order)
   transactional: true,  // with PgStore: handler effects + cursor in one DB transaction
+  onError: "retry",     // or "skip" | "dead-letter" after maxAttempts (see Failures)
+  maxAttempts: 5,
+  isRetryable: (error) => true, // false: give up at once (see Failures)
+  lock: "fail",         // or "wait" (see Running one instance)
+  lagIntervalMs: 15_000,
 });
-consumer.status();
+consumer.status();      // cursors, failures, last measured lag
 await consumer.stop();
 ```
 
@@ -86,27 +91,113 @@ await consumer.stop();
   complete up to the minimum shard `end_lt` of B. A quiet address therefore does
   not freeze the watermark (it lags by at most one idle-poll interval).
 
-**Failures never skip.** A throwing handler halts its address (or the whole stream
-in global order) and the same transaction is retried with backoff (1s → 60s).
-
 **Exactly once.** The cursor is persisted after every transaction. With `PgStore`
 and `transactional: true` (default) the handler runs inside the transaction that
 commits the cursor and receives it as `ctx.db`; writes made through it are exactly
 once even across crashes. Side effects outside that database (HTTP calls, messages)
-are at-least-once — make them idempotent (e.g. keyed by `tx.hash`). Run each
-consumer name in one process at a time.
+are at-least-once — make them idempotent (e.g. keyed by `tx.hash`).
+
+### Failures
+
+A throwing handler halts its address (or the whole stream in global order) and the
+same transaction is retried with backoff (`retryMinMs` 1s → `retryMaxMs` 60s). What
+happens when it keeps failing is `onError`:
+
+| `onError` | after `maxAttempts` (default 5) failed attempts |
+|---|---|
+| `"retry"` (default) | nothing changes: retried forever, nothing is ever skipped |
+| `"skip"` | the cursor moves past it; the stream continues |
+| `"dead-letter"` | it is recorded as a dead letter, the cursor moves past it (atomically with `PgStore`); the stream continues |
+
+An error that retrying cannot fix (a validation failure, a receiver rejecting the
+request) need not wait for `maxAttempts`: `isRetryable(error)` returning false makes
+`"skip"` and `"dead-letter"` give up on the first such failure. `"retry"` ignores it.
+
+Attempt counts are stored with the cursor, so a restart does not reset them (a
+halted address retries once right after a restart, then backs off again). In
+global order the stream halts while a transaction is being retried — ordering
+requires it — but a skipped or dead-lettered one no longer blocks anything.
+
+Every failure emits `handlerError` (`{ address, lt, attempts, error, action }`);
+giving up emits `skip` or `deadLetter`. Metrics:
+`ton_watch_consumer_errors_total`, `_skipped_total`, `_dead_letters_total`.
+
+```ts
+consumer.on("deadLetter", (letter) => alert(letter));
+await consumer.deadLetters();                        // or watch.deadLetters({ consumer, address })
+await consumer.replayDeadLetter(address, lt);        // handler again (ctx.replay = true), then delete
+await consumer.resolveDeadLetter(address, lt);       // delete without redelivering
+```
+
+A replay is out of order by nature and may run alongside live delivery. With a
+transactional store the handler's `ctx.db` writes commit together with the dead
+letter's deletion, so a replay takes effect once; if the handler throws, the dead
+letter stays with the new error and attempt count.
+
+### Running one instance
+
+Two processes running the same consumer name would deliver everything twice, so a
+consumer delivers only while holding its lock. `PgStore` takes a session-level
+advisory lock keyed on (schema, consumer name), on a dedicated pool connection
+held for the consumer's lifetime (so each running consumer uses one connection on
+top of the pool's working set). `MemoryStore` guards within the process. A custom
+`Store` without `lockConsumer` is not guarded.
+
+- `lock: "fail"` (default): a second instance is refused with
+  `ConsumerLockedError` — `watch.start()` rejects (and starts nothing), and so do
+  `consumer.ready()` after `consumer.start()`, and `consumer.runOnce()`.
+- `lock: "wait"`: `start()` succeeds; the consumer waits (`status().waitingForLock`)
+  and takes over when the other instance stops — a simple hot standby.
+- `stop()` releases the lock; so does the database when the process dies. If the
+  lock's connection breaks, the consumer stops delivering and re-takes the lock
+  before going on.
+- `runOnce()` outside `start()` holds the lock for that round only.
+
+### Managing consumers
+
+```ts
+await watch.consumers();                     // name, order, per-address cursors (lt, updatedAt, attempts, lastError)
+await watch.consumerLag("payments");         // { transactions, lt, seconds, addresses: [...] }
+await watch.rewindConsumer("payments", "start");                    // redeliver everything
+await watch.rewindConsumer("payments", lt, { addresses: [addr] });   // deliver what comes after lt
+await watch.rewindConsumer("payments", "now");                      // skip to each frontier
+await watch.deleteConsumer("old-consumer");  // record, cursors and dead letters
+```
+
+They work for consumers running in other processes too. A cursor's `updatedAt` is
+its last delivery (or skip, or rewind). The service has the same operations as
+[commands](#managing-consumers-from-the-cli).
+
+- **Rewind** of a consumer registered in this `TonWatch` (or `consumer.rewind()`)
+  is applied between rounds: the round in progress ends after the transaction being
+  handled, the cursors move, and delivery resumes from there. A consumer running in
+  another process holds its lock, and the rewind is refused with
+  `ConsumerLockedError` — stop it first. Rewinding clears failure counts; dead
+  letters are kept (resolve the ones the rewind redelivers).
+- **Delete** is refused while the consumer runs anywhere, and for a consumer
+  registered in the calling `TonWatch`.
+- **Lag** is the consumer's own backlog: stored transactions it may deliver but has
+  not — up to each frontier, or up to the watermark in global order. `seconds` is
+  the age of the oldest of them (0 when caught up), `lt` the newest one's lt minus
+  the cursor. Indexing lag is separate (`ton_watch_address_lag_seconds`). A started
+  consumer measures it every `lagIntervalMs` into `status().lag` and the gauges
+  `ton_watch_consumer_lag_transactions{consumer}` and
+  `ton_watch_consumer_lag_seconds{consumer}`.
 
 ## Service
 
-`bun run start` (= `ton-watch run`) runs the indexer until SIGINT/SIGTERM, then
-finishes in-flight work and exits. It never drops data: schema changes are
+`bun run start` (= `ton-watch run`) runs the indexer, and delivers to the
+configured [webhooks](#webhooks), until SIGINT/SIGTERM, then finishes in-flight
+work and exits. It never drops data: schema changes are
 versioned migrations (`<schema>.schema_migrations`).
 
 ```sh
 DATABASE_URL=postgres://… bun run start
+bun run cli deliver                     # webhooks only, no indexing (see below)
 bun run cli add <address> [--from now|genesis|<lt>]
 bun run cli remove <address> [--purge]
 bun run cli list
+bun run cli consumers                   # and other consumer commands (below)
 ```
 
 | env | default | |
@@ -116,13 +207,184 @@ bun run cli list
 | `TON_NETWORK` | `mainnet` | `mainnet`, `testnet` or a global config URL |
 | `TON_ARCHIVE_CONFIG` | — | config URL with archival liteservers, used only for history the others pruned |
 | `TON_WATCH_ADDRESSES` | — | `addr[@now\|genesis\|lt],…` added on start if missing |
-| `TON_WATCH_PORT` | `9464` | `/health`, `/metrics` (Prometheus), `/status` |
+| `TON_WATCH_PORT` | `9464` | `/health`, `/metrics` (Prometheus), `/status`, `/consumers` |
 | `TON_WATCH_CONCURRENCY` | `16` | liteserver pages in flight |
 | `TON_WATCH_DETECT` | `auto` | `poll`, `blocks` or `auto` |
 | `TON_WATCH_LOG` | `info` | `debug`, `info`, `warn`, `error` |
 
 `/health` is `ok`, `degraded` (lag above 120s, or a range no liteserver serves) or
-`down` (503: not running, or no successful tick for 60s).
+`down` (503: not running, or no successful tick for 60s). `/consumers` is the
+output of `ton-watch consumers` (below), read-only.
+
+### Managing consumers from the CLI
+
+These commands need only the database — no liteserver connection — so they can
+run next to a live service. Arguments are checked before connecting.
+
+```sh
+ton-watch consumers                                   # JSON: name, order, addresses, failing, lag, deadLetters
+ton-watch rewind <consumer> <start|now|lt> [--address <address>]...
+ton-watch dead-letters [<consumer>]                   # JSON, oldest first; hash in hex
+ton-watch replay <consumer> <address> <lt>            # send a dead letter again, then delete it
+ton-watch resolve <consumer> <address> <lt>           # delete a dead letter without sending it
+ton-watch delete-consumer <consumer>                  # record, cursors and dead letters
+```
+
+`lag` in `consumers` is the backlog described in [Managing
+consumers](#managing-consumers) (`transactions`, `lt`, `seconds`); `failing` counts
+addresses whose next transaction has failed at least once.
+
+`rewind` and `delete-consumer` change a consumer's position, so they are refused
+with `ConsumerLockedError` while it runs anywhere: stop the service (or the
+`deliver` process) first, then start it again. `replay` and `resolve` work while
+it runs. `replay` needs the consumer's handler, which the CLI has only for the
+configured [webhook](#webhooks) targets (`webhook:<name>`, with the same webhook
+variables as the service); replay your own consumers with
+`consumer.replayDeadLetter()` in the process that runs them. A failed replay keeps
+the dead letter, with the new error, and exits 1.
+
+### Webhooks
+
+The service POSTs every transaction of the watched addresses to one or more
+HTTP endpoints. Each target is a [consumer](#consumer-api) named
+`webhook:<name>`, so delivery has the same guarantees: per address (or global)
+chain order, never past a gap, position stored after each transaction and
+resumed after a restart.
+
+| env | default | |
+|---|---|---|
+| `TON_WATCH_WEBHOOK_URL` | — | one target, named `default` |
+| `TON_WATCH_WEBHOOKS` | — | JSON array of named targets (below) |
+| `TON_WATCH_WEBHOOK_SECRET` | — | HMAC-SHA256 signing secret; unsigned when unset |
+| `TON_WATCH_WEBHOOK_ORDER` | `address` | `address` or `global` (see [ordering](#consumer-api)) |
+| `TON_WATCH_WEBHOOK_FROM` | `start` | first run only: `start` (all indexed history), `now` or an lt |
+| `TON_WATCH_WEBHOOK_TIMEOUT_MS` | `10000` | per request |
+| `TON_WATCH_WEBHOOK_RETRY_MIN_MS` | `1000` | first retry delay, doubling per failure… |
+| `TON_WATCH_WEBHOOK_RETRY_MAX_MS` | `60000` | …up to this |
+| `TON_WATCH_WEBHOOK_ON_ERROR` | `retry` | `retry`, `skip` or `dead-letter`: what happens to a transaction the receiver keeps refusing (below) |
+| `TON_WATCH_WEBHOOK_MAX_ATTEMPTS` | `5` | failed requests before `skip` / `dead-letter` gives up |
+
+The `TON_WATCH_WEBHOOK_*` settings are defaults for every target; a
+`TON_WATCH_WEBHOOKS` entry can override them and restrict the addresses:
+
+```sh
+TON_WATCH_WEBHOOKS='[
+  {"name": "billing", "url": "https://billing.example/ton", "addresses": ["EQ…", "0:…"]},
+  {"name": "ledger", "url": "https://ledger.example/in", "order": "global", "secret": "…"}
+]'
+```
+
+`name` (`[A-Za-z0-9._-]`, at most 64) is required and identifies the stored
+position: renaming a target starts it over from `from`, changing its URL does
+not. Other keys: `url`, `secret`, `addresses`, `order`, `from`, `timeoutMs`,
+`retryMinMs`, `retryMaxMs`, `onError`, `maxAttempts`.
+
+**Delivery.** One request per transaction. A 2xx response is a delivery; the
+position advances only after it. Anything else halts that address (in global
+order: the whole stream), is logged and reported on `/health` (`degraded`) and
+`/status`, and the same transaction is retried with backoff. What happens when it
+keeps failing is the target's `onError` (the [consumer
+policy](#failures)):
+
+| `onError` | retryable failure: network error, timeout, 408, 429, 5xx | rejection: redirect, other 4xx |
+|---|---|---|
+| `retry` (default) | retried forever; nothing is skipped | retried forever |
+| `skip` | skipped after `maxAttempts` failed requests | skipped at once |
+| `dead-letter` | dead-lettered after `maxAttempts` failed requests | dead-lettered at once |
+
+A rejection is the receiver saying the request itself is wrong, so sending it
+again unchanged will not help. Dead letters are listed with `ton-watch
+dead-letters`, sent again with `ton-watch replay` once the receiver is fixed, or
+dropped with `ton-watch resolve` (see [the CLI](#managing-consumers-from-the-cli)).
+
+Over HTTP this is **at least once**: a request that times out may still have been
+processed, and a crash after the receiver answered but before the position was
+stored re-sends that transaction. Deduplicate on the `Idempotency-Key` header
+(= `id` in the body), which is the same for every attempt.
+
+**Request.** `POST` with `content-type: application/json` and these headers:
+
+| header | |
+|---|---|
+| `Idempotency-Key` | `<raw address>:<lt>:<hex hash>` |
+| `TON-Watch-Signature` | `t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`, when a secret is set |
+| `TON-Watch-Replay` | `1` on a replayed dead letter; absent otherwise |
+
+```jsonc
+{
+  "id": "0:83df…:47213860000001:9c1f…",  // idempotency key
+  "webhook": "billing",                  // target name
+  "address": { "raw": "0:83df…", "friendly": "EQCD…" },
+  "lt": "47213860000001",                // decimal string
+  "hash": { "hex": "9c1f…", "base64": "nB8…" },
+  "utime": 1717000000,
+  "prev": { "lt": "47213850000003", "hash": { "hex": "…", "base64": "…" } },  // null for the account's first tx
+  "boc": "te6cck…",                      // the transaction cell, base64
+  "parsed": {                            // ton-watch/parse summary; null if the BOC does not parse
+    "type": "generic", "success": true, "aborted": false,
+    "compute": { "type": "vm", "success": true, "exitCode": 0, "gasUsed": "309" },
+    "action": { "success": true, "resultCode": 0, "totalActions": 0, "skippedActions": 0 },
+    "receivedBounce": false, "bouncedBack": false, "direction": "incoming",
+    "inMessage": {
+      "type": "internal", "src": "0:…", "dest": "0:83df…", "value": "1500000000",
+      "op": 0, "queryId": null, "comment": "order 42",
+      "body": { "kind": "text-comment", "text": "order 42" },
+      "bounce": false, "bounced": false, "fwdFee": "266669", "extraFlags": "0",
+      "extraCurrencies": {}, "createdLt": "47213860000000", "createdAt": 1717000000
+    },
+    "outMessages": [],
+    "totalFees": "102415", "valueIn": "1500000000", "valueOut": "0"
+  },
+  "replay": false                        // true when a dead letter is replayed
+}
+```
+
+In `parsed`, bigints are decimal strings, nested addresses are raw strings
+(`0:<hex>`), cells are base64 BOCs and binary data is base64; the field names
+are those of `ParsedTransaction` in [`ton-watch/parse`](src/parse/types.ts)
+(without `raw`, and without the fields already at the top level). The friendly
+address is the bounceable form (testnet form when `TON_NETWORK=testnet`).
+
+A replay (`"replay": true`) arrives out of order — later transactions of the
+address were delivered meanwhile — with the same `id` as the original attempts.
+Deduplicate it like any other request: if an earlier attempt was processed after
+all (e.g. one that timed out), answer 2xx without processing it again.
+
+**Verifying the signature.** Compute the HMAC over the raw body bytes as received
+(before any JSON parsing), compare in constant time, and reject old timestamps so
+a captured request cannot be replayed later. Five minutes is a reasonable window;
+every retry is signed afresh, so it never rejects a legitimate retry. Pair it with
+the idempotency key to drop replays inside the window.
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verifyTonWatch(secret: string, rawBody: string, header: string | null) {
+  const fields = Object.fromEntries(
+    (header ?? "").split(",").map((part) => part.trim().split("=", 2)),
+  );
+  const timestamp = Number(fields.t);
+  if (!Number.isInteger(timestamp) || Math.abs(Date.now() / 1000 - timestamp) > 300) return false;
+  const expected = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest();
+  const actual = Buffer.from(fields.v1 ?? "", "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+// e.g. Bun.serve / fetch handlers:
+//   const body = await request.text();
+//   if (!verifyTonWatch(SECRET, body, request.headers.get("ton-watch-signature")))
+//     return new Response(null, { status: 401 });
+```
+
+**Delivery apart from indexing.** `ton-watch deliver` runs only the webhook
+consumers: no liteserver connection, same database and webhook settings. Run the
+indexer with no webhook variables and one `deliver` process next to it to
+restart, deploy or scale delivery without touching indexing. A `deliver` process
+learns about new transactions by polling the store (every second). Run each
+target in one process at a time: `deliver` exits 1 with `ConsumerLockedError` if
+a target already runs elsewhere (and starts none of them). `/health` and
+`/status` report the webhook consumers; `/metrics` their counters; `/consumers`
+every consumer in the database.
 
 ### Metrics
 
@@ -135,6 +397,12 @@ bun run cli list
 | `ton_watch_source_calls_total{method}` | liteserver calls |
 | `ton_watch_walks`, `ton_watch_walks_stuck` | ranges being fetched / waiting for an archival server |
 | `ton_watch_tip_seqno`, `ton_watch_max_lag_seconds` | |
+| `ton_watch_consumer_delivered_total{consumer}` | transactions handed to the handler and committed |
+| `ton_watch_consumer_errors_total{consumer}` | failed handler calls |
+| `ton_watch_consumer_skipped_total{consumer}`, `ton_watch_consumer_dead_letters_total{consumer}` | transactions given up on (`onError`) |
+| `ton_watch_consumer_replayed_total{consumer}` | dead letters replayed successfully |
+| `ton_watch_consumer_lag_transactions{consumer}`, `ton_watch_consumer_lag_seconds{consumer}` | the consumer's backlog (see [Managing consumers](#managing-consumers)) |
+| `ton_watch_consumer_watermark_lt{consumer}` | global order: lt the stream is released up to |
 
 ## Addresses
 
@@ -142,7 +410,7 @@ bun run cli list
   `"genesis"` (full history) or an lt. Works at runtime; the running indexer picks
   it up on its next tick, also when added from another process.
 - `removeAddress(addr)` stops tracking and keeps the data; `{ purge: true }` deletes
-  it with its consumer cursors.
+  it with its consumer cursors and dead letters.
 
 ## Liteservers
 
@@ -216,7 +484,8 @@ implementation (works with `pg` and PGlite), `MemoryStore` the minimal one.
 
 Postgres tables in schema `ton_watch`: `addresses`, `transactions`
 (primary key `(address_id, lt)`, which serves ordered reads, prev-link lookups and
-gap floors — no other index needed), `cursors`, `schema_migrations`.
+gap floors — no other index needed), `cursors` (with the failure state of the
+transaction after each cursor), `consumers`, `dead_letters`, `schema_migrations`.
 
 Size: a transaction is stored as its BOC (667 bytes on average in our
 benchmarks) plus ~110 bytes of row data and index — roughly **1 GB per million

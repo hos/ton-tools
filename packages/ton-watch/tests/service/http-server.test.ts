@@ -3,6 +3,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import { startHttpServer, toJson } from "../../src/service/http-server";
+import { indexerProbe } from "../../src/service/probes";
 import type { ServerStats } from "../../src/source/liteserver/server-pool";
 import { MemoryStore } from "../../src/stores/memory/memory-store";
 import { TonWatch } from "../../src/ton-watch";
@@ -46,7 +47,11 @@ async function setup(logger: Logger = silentLogger) {
     logger: silentLogger,
   });
   await watch.addAddress(A, { from: "genesis" });
-  server = startHttpServer(watch, () => stats, 0, logger);
+  server = startHttpServer(
+    indexerProbe(watch, () => stats),
+    0,
+    logger,
+  );
   await new Promise((resolve) => server!.once("listening", resolve));
   const { port } = server.address() as AddressInfo;
   const get = (path: string, init?: RequestInit) => fetch(`http://127.0.0.1:${port}${path}`, init);
@@ -121,10 +126,45 @@ describe("startHttpServer", () => {
     expect(response.headers.get("content-type")).toBe("application/json");
     const body = await response.json();
     expect(body.servers).toEqual(stats);
+    expect(body.webhooks).toEqual([]);
     expect(body.addresses).toHaveLength(1);
     expect(body.addresses[0].address).toBe(A);
     expect(typeof body.addresses[0].syncedLt).toBe("string");
     expect(typeof body.addresses[0].frontier).toBe("string");
+  });
+
+  test("/consumers lists the store's consumers with lag and dead letters", async () => {
+    const { watch, get } = await setup();
+    const reader = watch.process("reader", () => {}, { addresses: [A] });
+    await watch.start();
+    await until(() => reader.status().delivered === 5);
+    const response = await get("/consumers");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/json");
+    expect(await response.json()).toMatchObject([
+      { name: "reader", order: "address", addresses: 1, failing: 0, deadLetters: 0 },
+    ]);
+  });
+
+  test("/consumers is 500 with the error when the store fails", async () => {
+    const lines: unknown[][] = [];
+    const logger: Logger = { ...silentLogger, warn: (...args) => void lines.push(args) };
+    server = startHttpServer(
+      {
+        metrics: () => "",
+        health: () => ({ status: "ok" }),
+        status: () => ({}),
+        consumers: () => Promise.reject(new Error("database is gone")),
+      },
+      0,
+      logger,
+    );
+    await new Promise((resolve) => server!.once("listening", resolve));
+    const { port } = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${port}/consumers`);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "database is gone" });
+    expect(lines).toEqual([["/consumers failed:", "database is gone"]]);
   });
 
   test("unknown paths are 404 with an empty body", async () => {

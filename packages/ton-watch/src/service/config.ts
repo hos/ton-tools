@@ -3,6 +3,8 @@ import type { ServerDefinition } from "@ton/ls";
 import type { DetectMode } from "../indexer/options";
 import type { AddAddressOptions } from "../ton-watch";
 import { isLogLevel, type LogLevel } from "../util/logger";
+import { type Env, integerInRange, oneOf, withoutEmpty } from "./env";
+import { type WebhookTarget, webhooksFromEnv } from "./webhook/config";
 
 /** Service configuration, read from the environment (see `bin/ton-watch.ts`). */
 export interface ServiceConfig {
@@ -19,6 +21,8 @@ export interface ServiceConfig {
   detect: DetectMode;
   logLevel: LogLevel;
   history: ToncenterConfig | null;
+  /** Webhook targets, each delivered by its own consumer; empty when none are configured. */
+  webhooks: WebhookTarget[];
 }
 
 export interface ToncenterConfig {
@@ -27,18 +31,12 @@ export interface ToncenterConfig {
   endpoint?: string;
 }
 
-type Env = Record<string, string | undefined>;
-
 const DEFAULT_PORT = 9464;
 const DEFAULT_CONCURRENCY = 16;
 const DETECT_MODES: readonly DetectMode[] = ["poll", "blocks", "auto"];
 const HISTORY_MODES: readonly ToncenterConfig["mode"][] = ["fallback", "boost"];
 const HISTORY_SOURCES = ["toncenter"] as const;
 const MAX_PORT = 65_535;
-
-/** An empty variable (`TON_WATCH_LOG=` in compose/k8s) means "unset", not an invalid value. */
-const withoutEmpty = (env: Env): Env =>
-  Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ""));
 
 export function configFromEnv(rawEnv: Env): ServiceConfig {
   const env = withoutEmpty(rawEnv);
@@ -60,6 +58,7 @@ export function configFromEnv(rawEnv: Env): ServiceConfig {
     detect: oneOf("TON_WATCH_DETECT", env.TON_WATCH_DETECT ?? "auto", DETECT_MODES),
     logLevel: logLevelFromEnv(env),
     history: historyFromEnv(env),
+    webhooks: webhooksFromEnv(env),
   };
 }
 
@@ -98,27 +97,4 @@ function parseAddressList(list: string): ServiceConfig["addresses"] {
       const [address = "", from] = entry.split("@");
       return { address, from: parseFrom(from) };
     });
-}
-
-/** A decimal integer in `[min, max]`, or `fallback` when the variable is unset. */
-function integerInRange(
-  name: string,
-  value: string | undefined,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  if (value === undefined) return fallback;
-  const parsed = /^\d+$/.test(value) ? Number(value) : Number.NaN;
-  if (!(parsed >= min && parsed <= max)) {
-    throw new Error(`invalid ${name}: ${value} (an integer from ${min} to ${max})`);
-  }
-  return parsed;
-}
-
-function oneOf<T extends string>(name: string, value: string, allowed: readonly T[]): T {
-  if (!(allowed as readonly string[]).includes(value)) {
-    throw new Error(`invalid ${name}: ${value} (${allowed.join(" | ")})`);
-  }
-  return value as T;
 }

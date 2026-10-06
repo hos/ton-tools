@@ -2,10 +2,19 @@
 /**
  * Long-running ton-watch service and address management CLI.
  *
- *   ton-watch run                          index until SIGINT/SIGTERM
+ *   ton-watch run                          index (and deliver webhooks) until SIGINT/SIGTERM
+ *   ton-watch deliver                      deliver webhooks only, without indexing
  *   ton-watch add <address> [--from now|genesis|<lt>]
  *   ton-watch remove <address> [--purge]
  *   ton-watch list
+ *
+ * Consumer management (database only, no liteserver connection):
+ *   ton-watch consumers                    every consumer with order, lag and dead letters (JSON)
+ *   ton-watch rewind <consumer> <start|now|lt> [--address <address>]...
+ *   ton-watch dead-letters [<consumer>]    dead letters (JSON)
+ *   ton-watch replay <consumer> <address> <lt>   re-send a webhook dead letter, then delete it
+ *   ton-watch resolve <consumer> <address> <lt>  delete a dead letter without re-sending it
+ *   ton-watch delete-consumer <consumer>
  *
  * Configuration (env):
  *   DATABASE_URL            Postgres connection string (required)
@@ -23,6 +32,21 @@
  *   TON_WATCH_HISTORY_MODE  fallback (default: only history liteservers pruned) | boost
  *   TONCENTER_API_KEY       optional; raises toncenter's limit from 1 to 10+ requests/s
  *   TONCENTER_ENDPOINT      default https://toncenter.com/api/v2
+ *
+ * Webhooks (see README "Webhooks"):
+ *   TON_WATCH_WEBHOOK_URL   one target, named "default"
+ *   TON_WATCH_WEBHOOKS      JSON array of named targets: {name, url, secret?, addresses?,
+ *                           order?, from?, timeoutMs?, retryMinMs?, retryMaxMs?,
+ *                           onError?, maxAttempts?}
+ *   TON_WATCH_WEBHOOK_SECRET          HMAC-SHA256 signing secret (default for all targets)
+ *   TON_WATCH_WEBHOOK_ORDER           address | global, default address
+ *   TON_WATCH_WEBHOOK_FROM            start | now | <lt>, default start (first run only)
+ *   TON_WATCH_WEBHOOK_TIMEOUT_MS      per request, default 10000
+ *   TON_WATCH_WEBHOOK_RETRY_MIN_MS    first retry delay, default 1000 (doubles per failure)
+ *   TON_WATCH_WEBHOOK_RETRY_MAX_MS    longest retry delay, default 60000
+ *   TON_WATCH_WEBHOOK_ON_ERROR        retry (default) | skip | dead-letter, for a transaction
+ *                                     the receiver keeps refusing (a 3xx/4xx at once)
+ *   TON_WATCH_WEBHOOK_MAX_ATTEMPTS    failed requests before skip/dead-letter, default 5
  */
 import { errorMessage } from "../core/errors";
 import { main } from "../service/cli";
