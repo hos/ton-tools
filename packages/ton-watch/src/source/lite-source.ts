@@ -18,6 +18,7 @@ import type { TxId, TxRecord } from "../types";
 import { ServerPool, type PoolMember, type ServerPoolOptions } from "./pool";
 import { lastTxFromStateProof } from "./account-proof";
 import { parseShardTops } from "./shards";
+import { recordFromCell } from "../tx-cell";
 import type { BlockRef, ChainTip, ShardTop, TxSource } from "./source";
 
 export interface LiteSourceOptions extends ServerPoolOptions {
@@ -207,19 +208,7 @@ export class LiteSource implements TxSource {
         Math.min(count, this.maxPageSize),
         this.awaitArgs()
       );
-      const cells = Cell.fromBoc(res.transactions);
-      const page = cells.map((cell, i): TxRecord => {
-        const tx = loadTransaction(cell.beginParse());
-        return {
-          address: raw,
-          lt: tx.lt,
-          hash: cell.hash(),
-          prevLt: tx.prevTransactionLt,
-          prevHash: bigIntToBuffer(tx.prevTransactionHash, 64),
-          utime: tx.now,
-          boc: cell.toBoc({ idx: false, crc32: false }),
-        };
-      });
+      const page = Cell.fromBoc(res.transactions).map((cell) => recordFromCell(cell, raw));
       validatePage(from, page);
       return page;
     });

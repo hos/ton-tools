@@ -21,6 +21,19 @@ const days = Number(arg("days", "7"));
 const concurrency = Number(arg("concurrency", "64"));
 const label = arg("label", "current")!;
 const split = arg("split", "on") !== "off";
+// --history toncenter[:fallback|boost] plugs in ton-watch/toncenter (TONCENTER_API_KEY optional).
+const historyArg = arg("history");
+const historyMode = (historyArg?.split(":")[1] ?? "boost") as "fallback" | "boost";
+const makeHistory = async () =>
+  historyArg?.startsWith("toncenter")
+    ? {
+        source: new (await import("../src/toncenter")).ToncenterHistory({
+          apiKey: process.env.TONCENTER_API_KEY,
+          pageSize: 1000,
+        }),
+        mode: historyMode,
+      }
+    : undefined;
 const limitMinutes = Number(arg("limit-minutes", "120"));
 
 const accounts = loadResult("accounts");
@@ -54,6 +67,7 @@ const indexer = new Indexer({
   detect: "poll",
   retryMinMs: 500,
   split: split ? undefined : false,
+  history: await makeHistory(),
 });
 
 const started = performance.now();
@@ -90,6 +104,7 @@ async function finish(timedOut: boolean) {
     days,
     concurrency,
     split,
+    history: historyArg ?? "off",
     store: pool ? "postgres" : "memory",
     startLt,
     seconds,

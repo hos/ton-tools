@@ -165,8 +165,43 @@ error kind:
 
 Measured 2026-10-06 (full table in [`bench/RESULTS.md`](bench/RESULTS.md)): 11 of the 12 reachable public mainnet liteservers serve account transactions back **35–41 days**; one (185.86.79.9) is archival back past a year but missing roughly days 3–50. Old **account state** is served for less than a day — which is why an indexer that reads state "as of" each block cannot recover from a multi-day stall, while this one can.
 
-**Configure an archival liteserver if you may need more than ~a month of history**,
-including recovery from an outage longer than that.
+**For more than ~a month of history** (including recovery from an outage longer
+than that), configure an archival liteserver or plug in toncenter (below).
+
+## Optional: toncenter history plug-in
+
+A separate import that the core never loads on its own. Leave it out and nothing
+changes.
+
+```ts
+import { ToncenterHistory } from "ton-watch/toncenter";
+
+new TonWatch({
+  store,
+  source,
+  history: {
+    source: new ToncenterHistory({ apiKey: process.env.TONCENTER_API_KEY }), // key optional
+    mode: "fallback",  // or "boost"
+    enabled: true,     // flip off without unwiring
+  },
+});
+```
+
+- **`fallback`** (default): liteservers first. toncenter is asked only for ranges no
+  liteserver serves any more. It is archival, so outages of months recover without
+  your own archival node.
+- **`boost`**: also used whenever it has spare request budget. It serves up to 1000
+  transactions per request where liteservers serve 16, and liteservers take whatever
+  it can't.
+- toncenter pages are raw transaction BOCs. ton-watch re-hashes them and checks every
+  prev link exactly like liteserver pages (verified on mainnet: byte-identical). A
+  wrong answer is rejected and refetched from liteservers, never stored.
+- Rate-limited client side: 1 request/s without a key, 10 with one (`rps` to change).
+  It retries 429 and 5xx with backoff.
+- Service: `TON_WATCH_HISTORY=toncenter`, `TON_WATCH_HISTORY_MODE=fallback|boost`,
+  `TONCENTER_API_KEY`, `TONCENTER_ENDPOINT`.
+- Any other provider plugs in the same way: implement `HistorySource`
+  (`getTransactions(address, from, count)`, optionally `busy()`).
 
 ## Storage
 
@@ -196,7 +231,8 @@ Same 1-hour window, same liteserver pool, same parallelism (64):
 
 - **Parallelism** (1000 addresses, 1h): 712 s sequential → 45 s at concurrency 64.
 - **Long ranges** (iteration on the measurements): one address's history is a sequential walk (~120 tx/s, one page per round trip). Splitting long ranges via block listings made a single busy address **2.6× faster** (32.7 s → 12.6 s) and 10 addresses **2.8×** (39.9 s → 14.2 s), at the cost of more calls.
-- **7-day outage, 10 busy addresses (~100k tx/day combined)**: 709,477 transactions caught up in **8.5 minutes** into Postgres, all complete, no stuck ranges. The comparison without splitting and the 7-week run are in `bench/RESULTS.md`.
+- **7-day outage, 10 busy addresses (~100k tx/day combined)**: 709,477 transactions caught up in **8.5 minutes** into Postgres, all complete, no stuck ranges. Without range splitting the same catch-up took 28 minutes.
+- **toncenter plug-in in `boost` mode, free tier (1 request/s)**: a single busy address's hour (3.9k tx) took **4.2 s and 35 calls**, against 12.6 s / 659 calls with liteservers and splitting. At 10 addresses the 1 request/s budget is the limit (13.8 s, same as without it). An API key raises it.
 
 ## When to use this, and when not
 
@@ -217,9 +253,10 @@ Use a full-chain indexer ([ton-indexer](https://github.com/toncenter/ton-indexer
 ## Development
 
 ```sh
-bun test                                   # unit + PGlite tests, deterministic
+bun test                                   # 91 tests: unit, indexer, consumer, end-to-end, PGlite; deterministic
 TEST_DATABASE_URL=postgres://… bun test    # also run the store contract on real Postgres
-LIVE=1 bun test tests/live.test.ts         # mainnet: last 3000 txs of a busy address vs toncenter
+LIVE=1 bun test tests/live.test.ts         # mainnet: last 3000 txs of a busy address vs toncenter,
+                                           # toncenter pages vs liteserver pages
 bun run typecheck
 ```
 

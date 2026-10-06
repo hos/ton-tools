@@ -480,5 +480,48 @@
         "complete": "100/100"
       }
     ]
+  },
+  "toncenter-boost-free": {
+    "measuredAt": "2026-10-06T13:37:28.896Z",
+    "hours": 1,
+    "startLt": "108182108000000",
+    "runs": [
+      {
+        "size": 1,
+        "concurrency": 64,
+        "split": true,
+        "history": "toncenter:boost",
+        "txs": 3914,
+        "seconds": 4.244883542,
+        "txPerSecond": 922.0512085370185,
+        "calls": 35,
+        "callsPerSecond": 8.245220311393881,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 1,
+          "getTransactions": 0
+        },
+        "errors": 0,
+        "complete": "1/1"
+      },
+      {
+        "size": 10,
+        "concurrency": 64,
+        "split": true,
+        "history": "toncenter:boost",
+        "txs": 16578,
+        "seconds": 13.793969125,
+        "txPerSecond": 1201.8295712982465,
+        "calls": 1179,
+        "callsPerSecond": 85.47213563521731,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 15,
+          "getTransactions": 666
+        },
+        "errors": 19,
+        "complete": "10/10"
+      }
+    ]
   }
 }

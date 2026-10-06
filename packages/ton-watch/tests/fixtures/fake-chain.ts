@@ -216,3 +216,28 @@ export class FakeSource implements TxSource {
     return touched;
   }
 }
+
+/** History plug-in over a `FakeChain`: big pages, full depth, optional faults. */
+export class FakeHistory {
+  readonly name = "fake-history";
+  readonly calls = { getTransactions: 0 };
+  constructor(
+    readonly chain: FakeChain,
+    public opts: { pageSize?: number; fail?: boolean; corrupt?: boolean; busy?: boolean } = {}
+  ) {}
+  get maxPageSize() {
+    return this.opts.pageSize ?? 100;
+  }
+  busy() {
+    return !!this.opts.busy;
+  }
+  async getTransactions(address: string, from: TxId, count: number): Promise<TxRecord[]> {
+    this.calls.getTransactions++;
+    if (this.opts.fail) throw new SourceError("network", "history down");
+    const txs = this.chain.txs(address);
+    const idx = txs.findIndex((t) => t.lt === from.lt && t.hash.equals(from.hash));
+    if (idx < 0) throw new SourceError("archive_unavailable", "not found");
+    const page = txs.slice(Math.max(0, idx - count + 1), idx + 1).reverse();
+    return this.opts.corrupt && page.length > 2 ? [page[0]!, ...page.slice(2)] : page;
+  }
+}

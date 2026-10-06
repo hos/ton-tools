@@ -12,6 +12,7 @@ import { analyzeChain } from "../src/chain";
 import { Indexer } from "../src/indexer";
 import { LiteSource } from "../src/source/lite-source";
 import { MemoryStore } from "../src/stores/memory-store";
+import { ToncenterHistory } from "../src/toncenter";
 import { toRaw } from "../src/watch";
 
 const LIVE = process.env.LIVE === "1";
@@ -65,5 +66,29 @@ describe.skipIf(!LIVE)("live mainnet", () => {
       for (const r of reference) expect(byLt.get(r.lt)).toBe(r.hash);
     },
     600_000
+  );
+
+  test(
+    "toncenter history pages are identical to liteserver pages, and reach past liteserver retention",
+    async () => {
+      const raw = toRaw(ADDRESS);
+      const source = await LiteSource.connect();
+      const tip = await source.getTip();
+      const last = (await source.getLastTx(raw, tip))!;
+      const history = new ToncenterHistory({ apiKey: process.env.TONCENTER_API_KEY });
+      const fromLs = await source.getTransactions(raw, last, 16);
+      const fromTc = await history.getTransactions(raw, last, 16);
+      expect(fromTc.map((t) => t.hash.toString("hex"))).toEqual(fromLs.map((t) => t.hash.toString("hex")));
+      expect(fromTc.every((t, i) => t.boc.equals(fromLs[i]!.boc))).toBe(true);
+
+      // A year-old transaction of the Getgems fee wallet: pruned on public liteservers.
+      const gg = toRaw("EQBYTuYbLf8INxFtD8tQeNk5ZLy-nAX9ahQbG_yl1qQ-GEMS");
+      const old = { lt: 62278509000005n, hash: Buffer.from("sB/zEa2IZ4FDkGXgEwPKNQXhV6TNNJ7sr/tnGWseREM=", "base64") };
+      const page = await history.getTransactions(gg, old, 100);
+      expect(page[0]!.lt).toBe(old.lt);
+      expect(page.length).toBe(100);
+      await source.close();
+    },
+    120_000
   );
 });

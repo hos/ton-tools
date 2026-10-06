@@ -12,18 +12,22 @@
   "dependencies": {
     "@ton/core": "^0.63.1",
     "@ton/ls": "workspace:*",
-    "@types/pg": "^8.20.0",
-    "pg": "^8.21.0",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
     "ton-lite-client": "^3.1.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8"
   },
   "peerDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "main": "src/index.ts",
   "bin": {
     "ton-watch": "src/bin/ton-watch.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./toncenter": "./src/toncenter/index.ts"
   }
 }

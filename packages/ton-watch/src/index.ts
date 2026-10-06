@@ -27,3 +27,5 @@ export {
   type AddressState,
   type Gap,
 } from "./types";
+export type { HistorySource, HistoryOptions } from "./history";
+export { recordFromCell } from "./tx-cell";

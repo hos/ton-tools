@@ -16,6 +16,19 @@ const hours = Number(arg("hours", "2"));
 const concurrencies = arg("concurrency", "1,32")!.split(",").map(Number);
 const label = arg("label", "current")!;
 const split = arg("split", "on") !== "off";
+// --history toncenter[:fallback|boost] plugs in ton-watch/toncenter (TONCENTER_API_KEY optional).
+const historyArg = arg("history");
+const historyMode = (historyArg?.split(":")[1] ?? "boost") as "fallback" | "boost";
+const makeHistory = async () =>
+  historyArg?.startsWith("toncenter")
+    ? {
+        source: new (await import("../src/toncenter")).ToncenterHistory({
+          apiKey: process.env.TONCENTER_API_KEY,
+          pageSize: 1000,
+        }),
+        mode: historyMode,
+      }
+    : undefined;
 
 const accounts = loadResult("accounts");
 if (!accounts) throw new Error("run bench/accounts.ts first");
@@ -39,6 +52,7 @@ for (const size of sizes) {
       concurrency,
       detect: "poll",
       split: split ? undefined : false,
+      history: await makeHistory(),
     });
 
     const started = performance.now();
@@ -54,6 +68,7 @@ for (const size of sizes) {
       size,
       concurrency,
       split,
+      history: historyArg ?? "off",
       txs: store.size,
       seconds,
       txPerSecond: store.size / seconds,

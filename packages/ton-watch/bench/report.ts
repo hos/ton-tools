@@ -29,11 +29,11 @@ if (backfill) {
     out.push(
       `### ${label} (${r.measuredAt.slice(0, 16).replace("T", " ")}, window: last ${r.hours}h)`,
       "",
-      "| addresses | concurrency | split | tx | seconds | tx/s | calls | calls/s | complete |",
-      "|---:|---:|:---:|---:|---:|---:|---:|---:|:---:|",
+      "| addresses | concurrency | split | history | tx | seconds | tx/s | calls | calls/s | complete |",
+      "|---:|---:|:---:|:---:|---:|---:|---:|---:|---:|:---:|",
       ...r.runs.map(
         (x: any) =>
-          `| ${x.size} | ${x.concurrency} | ${x.split === false || x.split === undefined ? "off" : "on"} | ${x.txs} | ${fmt(x.seconds)} | ${fmt(x.txPerSecond)} | ${x.calls} | ${fmt(x.callsPerSecond)} | ${x.complete} |`
+          `| ${x.size} | ${x.concurrency} | ${x.split === false || x.split === undefined ? "off" : "on"} | ${x.history ?? "off"} | ${x.txs} | ${fmt(x.seconds)} | ${fmt(x.txPerSecond)} | ${x.calls} | ${fmt(x.callsPerSecond)} | ${x.complete} |`
       ),
       ""
     );

@@ -19,6 +19,10 @@
  *   TON_WATCH_CONCURRENCY   pages in flight, default 16
  *   TON_WATCH_DETECT        poll | blocks | auto, default auto
  *   TON_WATCH_LOG           debug | info | warn | error, default info
+ *   TON_WATCH_HISTORY       "toncenter" to enable the toncenter history plug-in (off by default)
+ *   TON_WATCH_HISTORY_MODE  fallback (default: only history liteservers pruned) | boost
+ *   TONCENTER_API_KEY       optional; raises toncenter's limit from 1 to 10+ requests/s
+ *   TONCENTER_ENDPOINT      default https://toncenter.com/api/v2
  */
 import { createServer } from "node:http";
 import { Pool } from "pg";
@@ -57,7 +61,20 @@ async function main() {
     logger,
   });
 
+  const history =
+    env.TON_WATCH_HISTORY === "toncenter"
+      ? {
+          source: new (await import("../toncenter")).ToncenterHistory({
+            apiKey: env.TONCENTER_API_KEY,
+            endpoint: env.TONCENTER_ENDPOINT,
+          }),
+          mode: (env.TON_WATCH_HISTORY_MODE as "fallback" | "boost" | undefined) ?? "fallback",
+        }
+      : undefined;
+  if (history) logger.info(`history plug-in: toncenter (${history.mode})`);
+
   const watch = new TonWatch({
+    history,
     store,
     source,
     logger,

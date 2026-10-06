@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a bun workspace monorepo (`packages/*`); there is no root build/lint/test aggregator, so run commands from within the relevant package.
 
 - Install (root): `bun install`
-- Run ton-watch: `cd packages/ton-watch && bun run start` (equivalent to `bun run src/index.ts`)
+- Run ton-watch: `cd packages/ton-watch && bun run start` (= `bun run src/bin/ton-watch.ts run`; needs `DATABASE_URL`)
 - Test a package: `cd packages/ton-ls && bun test` or `cd packages/ton-watch && bun test`
 - Test a single file: `bun test tests/filter.test.ts`
 - Publish `@ton/ls` to JSR: `cd packages/ton-ls && bun run publish` (`bunx jsr publish`); bump both `packages/ton-ls/package.json` and `packages/ton-ls/jsr.json` versions in sync, they are not linked automatically
@@ -42,4 +42,6 @@ Library (`src/index.ts`) plus a service/CLI (`src/bin/ton-watch.ts`, `bun run st
 - `TxSource` (src/source/source.ts) abstracts the chain. `LiteSource` uses `ServerPool` (src/source/pool.ts) for rotation, rate-limit cooldown, timeouts and archival fallback; errors are classified in src/errors.ts. Last-tx lookup parses the state proof directly (src/source/account-proof.ts) because ton-lite-client's account parser throws on some accounts.
 - `Store` (src/stores/store.ts): `PgStore` (reference; migrations in src/stores/pg/migrations.ts, default schema `ton_watch`, works with `pg` and PGlite) and `MemoryStore`. Inserts are `on conflict do nothing`; migrations never drop.
 - Tests run against a synthetic chain with real tx cells (`tests/fixtures/fake-chain.ts`) and PGlite; set `TEST_DATABASE_URL` to also run the store contract on a real Postgres. `LIVE=1` enables `tests/live.test.ts` (mainnet).
+- `ton-watch/toncenter` (src/toncenter/) is an optional `HistorySource` plug-in (indexer option `history`, modes `fallback`/`boost`); the core never imports it. Its pages go through the same `validatePage` as liteserver pages.
+- TypeScript 7: tsconfigs must list `"types": ["bun"]` — TS 7 no longer auto-includes `@types/*`. A root `overrides` pins one `@ton/core` for every package (ton-lite-client otherwise pulls an older copy).
 - Benchmarks in `bench/` hit mainnet public liteservers and write `bench/results/*.json`; `bench/accounts.ts` fixes the address sets first.

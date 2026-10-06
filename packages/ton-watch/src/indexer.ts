@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { validatePage } from "./chain";
 import { classifyError, type ErrorKind } from "./errors";
 import { silentLogger, type Logger } from "./logger";
+import type { HistoryOptions } from "./history";
 import { Metrics } from "./metrics";
 import type { ChainTip, TxSource } from "./source/source";
 import type { Store } from "./stores/store";
@@ -42,6 +43,8 @@ export interface IndexerOptions {
    * `targetTxs`, at most `maxParts`. `false` disables it.
    */
   split?: { minTxs?: number; targetTxs?: number; maxParts?: number } | false;
+  /** Optional history plug-in (see `HistorySource`), e.g. `ton-watch/toncenter`. */
+  history?: HistoryOptions;
   /** Export per-address gauges (lag, gaps). Default true. */
   addressMetrics?: boolean;
   metrics?: Metrics;
@@ -107,9 +110,10 @@ export class Indexer extends EventEmitter {
   readonly metrics: Metrics;
   private readonly logger: Logger;
   private readonly o: Required<
-    Omit<IndexerOptions, "store" | "source" | "metrics" | "logger" | "split">
+    Omit<IndexerOptions, "store" | "source" | "metrics" | "logger" | "split" | "history">
   >;
   private readonly split: { minTxs: number; targetTxs: number; maxParts: number } | null;
+  private readonly history: Required<HistoryOptions> | null;
 
   private runtimes = new Map<string, Runtime>();
   private walks = new Map<number, Walk>();
@@ -144,6 +148,10 @@ export class Indexer extends EventEmitter {
       archiveRetryMs: options.archiveRetryMs ?? 600_000,
       addressMetrics: options.addressMetrics ?? true,
     };
+    this.history =
+      options.history && options.history.enabled !== false
+        ? { mode: "fallback", enabled: true, ...options.history }
+        : null;
     this.split =
       options.split === false || !options.source.findTxNear
         ? null
@@ -531,8 +539,7 @@ export class Indexer extends EventEmitter {
   private async fetchPage(walk: Walk) {
     const { address } = walk;
     try {
-      const page = await this.source.getTransactions(address, walk.cursor, this.source.maxPageSize);
-      validatePage(walk.cursor, page);
+      const page = await this.fetchRange(walk);
       walk.pages++;
       walk.fetched += page.length;
       walk.failures = 0;
@@ -569,6 +576,41 @@ export class Indexer extends EventEmitter {
       if (walk.failures === 1 || isParked(walk)) this.logger.warn(msg);
       else this.logger.debug(msg);
       this.emit("fetchError", address, kind, e);
+    }
+  }
+
+  /**
+   * One page for a walk: from liteservers, or from the history plug-in when it is
+   * configured — always validated against the cursor before anything is written.
+   */
+  private async fetchRange(walk: Walk) {
+    const h = this.history;
+    const fromHistory = async (why: string) => {
+      const page = await h!.source.getTransactions(walk.address, walk.cursor, h!.source.maxPageSize);
+      validatePage(walk.cursor, page);
+      this.metrics.inc("ton_watch_history_pages_total", { source: h!.source.name, why });
+      return page;
+    };
+
+    if (h?.mode === "boost" && !h.source.busy?.()) {
+      try {
+        return await fromHistory("boost");
+      } catch (e) {
+        this.metrics.error(classifyError(e), "history");
+      }
+    }
+    try {
+      const page = await this.source.getTransactions(walk.address, walk.cursor, this.source.maxPageSize);
+      validatePage(walk.cursor, page);
+      return page;
+    } catch (e) {
+      if (!h || classifyError(e) !== "archive_unavailable") throw e;
+      try {
+        return await fromHistory("fallback");
+      } catch (he) {
+        this.metrics.error(classifyError(he), "history");
+        throw e;
+      }
     }
   }
 
