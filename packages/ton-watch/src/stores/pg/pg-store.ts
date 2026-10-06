@@ -1,278 +1,388 @@
-import {
-  Address,
-  beginCell,
-  storeTransaction,
-  type Transaction,
-} from "@ton/core";
-
-import {
-  bigIntToHex,
-  hashToHex,
-  toFriendlyAddress,
-  toRawAddress,
-} from "../../ton";
 import type { Pool } from "pg";
-import {
-  InsertQuery,
-  type Transactions,
-  type TransactionsInitializer,
-} from "./pg-client";
-import type { Store, TxCursor } from "../store";
-import { logger } from "../../logger";
 
-interface MigrateOptions {
-  drop?: boolean;
+import type { AddressState, Gap, TxId, TxRecord } from "../../core/types";
+import type {
+  Backlog,
+  ConsumerLock,
+  ConsumerOrder,
+  ConsumerRecord,
+  CursorState,
+  DeadLetter,
+  DeadLetterFilter,
+} from "../consumer-state";
+import type { AddAddressOptions, Store, StoreTransaction } from "../store";
+import { acquireConsumerLock } from "./consumer-lock";
+import { type PgDatabase, type PgQueryable, poolDatabase } from "./database";
+import { migrations, SCHEMA_PLACEHOLDER } from "./migrations";
+import { PgConsumerState } from "./pg-consumer-state";
+
+export interface PgStoreOptions {
+  /** Postgres schema holding the tables. Created if missing. Default `ton_watch`. */
   schema?: string;
+  /** Called by `close()`, e.g. `() => pool.end()`. Not called by default: the pool is yours. */
+  onClose?: () => Promise<void>;
 }
 
+const DEFAULT_SCHEMA = "ton_watch";
+const DEFAULT_GAP_LIMIT = 100;
+const SCHEMA_NAME = /^[a-z_][a-z0-9_]*$/;
+/** Postgres silently truncates longer identifiers (NAMEDATALEN - 1). */
+const MAX_SCHEMA_LENGTH = 63;
+
+/** `bytea` comes back as a `Buffer` from `pg` and as a `Uint8Array` from PGlite. */
+type Bytes = Uint8Array;
+
+interface AddressRow {
+  address: string;
+  start_lt: string;
+  active: boolean;
+  frontier_lt: string | null;
+  frontier_hash: Bytes | null;
+  synced_lt: string;
+  synced_utime: string | null;
+  head_lt: string | null;
+  head_hash: Bytes | null;
+}
+
+interface GapRow {
+  lt: string;
+  prev_lt: string;
+  prev_hash: Bytes;
+  floor_lt: string;
+}
+
+interface TxIdRow {
+  lt: string | null;
+  hash: Bytes | null;
+}
+
+interface TransactionRow {
+  lt: string;
+  hash: Bytes;
+  prev_lt: string;
+  prev_hash: Bytes;
+  utime: string;
+  boc: Bytes;
+}
+
+const toBuffer = (bytes: Bytes): Buffer => (Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes));
+const toHex = (bytes: Buffer) => bytes.toString("hex");
+
+function txIdFrom(lt: string | null, hash: Bytes | null): TxId | null {
+  return lt != null && hash != null ? { lt: BigInt(lt), hash: toBuffer(hash) } : null;
+}
+
+function addressStateFrom(row: AddressRow): AddressState {
+  return {
+    address: row.address,
+    startLt: BigInt(row.start_lt),
+    active: row.active,
+    head: txIdFrom(row.head_lt, row.head_hash),
+    frontier: txIdFrom(row.frontier_lt, row.frontier_hash),
+    syncedLt: BigInt(row.synced_lt),
+    syncedUtime: row.synced_utime === null ? null : Number(row.synced_utime),
+  };
+}
+
+/** Address state plus its head: the newest stored transaction. */
+const SELECT_ADDRESS_STATE = `
+  select a.address, a.start_lt::text, a.active, a.frontier_lt::text, a.frontier_hash,
+    a.synced_lt::text, a.synced_utime::text, h.lt::text as head_lt, h.hash as head_hash
+  from $S.addresses a
+  left join lateral (
+    select lt, hash from $S.transactions t where t.address_id = a.id order by lt desc limit 1
+  ) h on true`;
+
+/** Stored transactions above the frontier whose prev link is not satisfied (needs CTE `a`). */
+const FROM_UNLINKED = `
+  from a join $S.transactions t on t.address_id = a.id and t.lt > coalesce(a.frontier_lt, a.start_lt)
+  where t.prev_lt > a.start_lt
+    and not exists (
+      select 1 from $S.transactions p
+      where p.address_id = a.id and p.lt = t.prev_lt and p.hash = t.prev_hash
+    )`;
+
+/** Postgres store, the reference implementation. Works with `pg` and PGlite. */
 export class PgStore implements Store {
-  readonly pgClient: Pool;
+  readonly db: PgDatabase;
+  readonly schema: string;
+  private readonly quotedSchema: string;
+  private readonly onClose?: () => Promise<void>;
+  private readonly consumerState = new PgConsumerState((sql, params) => this.query(sql, params));
 
-  constructor(pgClient: Pool) {
-    this.pgClient = pgClient;
-  }
-
-  async start(args: MigrateOptions) {
-    const { drop, schema = "public" } = args;
-
-    if (drop) {
-      await this.pgClient.query(`--sql
-      drop table if exists ${schema}.transactions;
-      drop table if exists ${schema}.addresses;
-    `);
-    }
-
-    await this.pgClient.query(`--sql
-      create table if not exists ${schema}.addresses(
-        id bigint generated always as identity primary key,
-        address text not null unique,
-        start_lt bigint not null default 0,
-        created_at timestamp with time zone not null default now(),
-        updated_at timestamp with time zone not null default now()
+  constructor(db: Pool | PgDatabase, options: PgStoreOptions = {}) {
+    this.db = "transaction" in db ? db : poolDatabase(db);
+    this.schema = options.schema ?? DEFAULT_SCHEMA;
+    if (!SCHEMA_NAME.test(this.schema) || this.schema.length > MAX_SCHEMA_LENGTH) {
+      throw new Error(
+        `invalid schema name: ${this.schema} (lowercase letters, digits and _, at most ${MAX_SCHEMA_LENGTH})`,
       );
-
-      create table if not exists ${schema}.transactions(
-        id bigint generated always as identity primary key,
-        is_processed boolean default false,
-        from_address text not null,
-        to_address text not null references addresses(address) on delete cascade,
-        lt bigint not null,
-        hash text not null,
-        boc bytea,
-        transaction_created_at timestamp with time zone not null,
-        amount bigint not null,
-
-        prev_lt bigint,
-        prev_hash text,
-
-        created_at timestamp with time zone not null default now(),
-        updated_at timestamp with time zone not null default now(),
-
-        constraint transactions_to_address_lt_hash_unique unique (to_address, lt, hash)
-      );
-    `);
-  }
-
-  async setAddress(address: string, startLt?: bigint) {
-    const rawAddress = Address.parse(address).toRawString();
-
-    const params: any[] = [rawAddress];
-
-    if (startLt !== undefined) {
-      params.push(startLt);
     }
-
-    await this.pgClient.query(
-      `insert into addresses (address, start_lt) values ($1, ${
-        params.length === 2 ? "$2" : "default"
-      })
-        on conflict (address) do update
-          set start_lt = coalesce(excluded.start_lt, addresses.start_lt)`,
-      params
-    );
+    this.quotedSchema = `"${this.schema}"`;
+    this.onClose = options.onClose;
   }
 
-  async allAddresses() {
-    const { rows } = await this.pgClient.query<{ address: string }>(
-      `select address from addresses`
-    );
-
-    return rows.map((row) => row.address);
+  /**
+   * Creates the schema and applies pending migrations. Safe to run from several
+   * processes at once: everything happens under one advisory lock, because
+   * `create ... if not exists` alone races on a fresh database.
+   */
+  async migrate(): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const run = <Row>(sql: string, params?: unknown[]) => this.query<Row>(sql, params, tx);
+      await run(`select pg_advisory_xact_lock(hashtext($1))`, [`ton_watch:${this.schema}`]);
+      await run(`create schema if not exists $S`);
+      await run(`create table if not exists $S.schema_migrations (
+        version integer primary key,
+        name text not null,
+        applied_at timestamptz not null default now()
+      )`);
+      const applied = await run<{ version: number }>(`select version from $S.schema_migrations`);
+      const appliedVersions = new Set(applied.map((row) => Number(row.version)));
+      for (const migration of migrations) {
+        if (appliedVersions.has(migration.version)) continue;
+        for (const statement of migration.up) await run(statement);
+        await run(`insert into $S.schema_migrations (version, name) values ($1, $2)`, [
+          migration.version,
+          migration.name,
+        ]);
+      }
+    });
   }
 
-  async exists(address: string, { lt, hash }: TxCursor): Promise<boolean> {
-    const lastTxExists = await this.pgClient.query(
-      `select 1 from transactions where to_address = $1 and lt = $2 and hash = $3`,
-      [address, lt.toString(), hashToHex(hash)]
-    );
-
-    if (lastTxExists.rowCount === 1) {
-      return true;
-    }
-
-    return false;
+  async close(): Promise<void> {
+    await this.onClose?.();
   }
 
-  async existsList(address: string, txs: TxCursor[]): Promise<boolean[]> {
-    const res = await this.pgClient.query(
-      `select tx.lt, tx.hash from transactions tx where to_address = $1
-        and hash not in (
-          select hash from unnest($2::bigint[], $3::text[]) as t(lt, hash)
-        )
-      `,
+  async addAddress(address: string, options: AddAddressOptions): Promise<void> {
+    await this.query(
+      `insert into $S.addresses (address, start_lt, synced_lt, synced_utime)
+       values ($1, $2, $3, $4)
+       on conflict (address) do update set active = true, updated_at = now()`,
       [
         address,
-        txs.map(({ lt }) => [lt.toString()]),
-        txs.map(({ hash }) => [hash.toString()]),
-      ]
+        options.startLt.toString(),
+        (options.syncedLt ?? 0n).toString(),
+        options.syncedUtime ?? null,
+      ],
     );
+  }
 
-    return txs.map((tx) => {
-      return res.rows.some(
-        (row) => row.lt === tx.lt.toString() && row.hash === tx.hash.toString()
+  async removeAddress(address: string, options?: { purge?: boolean }): Promise<void> {
+    if (options?.purge) {
+      await this.query(`delete from $S.addresses where address = $1`, [address]);
+    } else {
+      await this.query(
+        `update $S.addresses set active = false, updated_at = now() where address = $1`,
+        [address],
       );
-    });
+    }
   }
 
-  async getLatestTx(address: Address | string) {
-    const {
-      rows: [latest],
-    } = await this.pgClient.query<Transactions>(
-      `--sql
-      select * from transactions
-      where to_address = $1
-      order by lt desc
-      limit 1
-    `,
-      [address.toString()]
+  async getAddress(address: string): Promise<AddressState | null> {
+    const [row] = await this.query<AddressRow>(`${SELECT_ADDRESS_STATE} where a.address = $1`, [
+      address,
+    ]);
+    return row ? addressStateFrom(row) : null;
+  }
+
+  async listAddresses(options?: { includeInactive?: boolean }): Promise<AddressState[]> {
+    const rows = await this.query<AddressRow>(
+      `${SELECT_ADDRESS_STATE} where a.active or $1 order by a.id`,
+      [!!options?.includeInactive],
     );
-
-    return latest;
+    return rows.map(addressStateFrom);
   }
 
-  async getOldestNoPrevTx(address: string) {
-    const {
-      rows: [latest],
-    } = await this.pgClient.query<Transactions>(
-      `--sql
-      select * from transactions
-      where to_address = $1
-      and not exists (
-        select 1 from transactions as t2
-        where t2.to_address = $1
-        and t2.lt = transactions.prev_lt
-      )
-      and lt > (select start_lt from addresses where address = $1)
-      order by lt asc
-      limit 1
-    `,
-      [address]
+  async write(address: string, txs: TxRecord[]): Promise<number> {
+    if (txs.length === 0) return 0;
+    const inserted = await this.query(
+      `with a as (select id, start_lt from $S.addresses where address = $1)
+       insert into $S.transactions (address_id, lt, hash, prev_lt, prev_hash, utime, boc)
+       select a.id, u.lt, decode(u.hash, 'hex'), u.prev_lt, decode(u.prev_hash, 'hex'), u.utime,
+         decode(u.boc, 'hex')
+       from a, unnest($2::bigint[], $3::text[], $4::bigint[], $5::text[], $6::bigint[], $7::text[])
+         as u(lt, hash, prev_lt, prev_hash, utime, boc)
+       where u.lt > a.start_lt
+       -- One key order for every writer: overlapping concurrent writes then wait on
+       -- each other instead of deadlocking.
+       order by u.lt
+       on conflict do nothing
+       returning lt`,
+      [
+        address,
+        txs.map((tx) => tx.lt.toString()),
+        txs.map((tx) => toHex(tx.hash)),
+        txs.map((tx) => tx.prevLt.toString()),
+        txs.map((tx) => toHex(tx.prevHash)),
+        txs.map((tx) => tx.utime),
+        txs.map((tx) => toHex(tx.boc)),
+      ],
     );
-
-    return latest;
+    return inserted.length;
   }
 
-  async getOldestTx(address: string) {
-    const {
-      rows: [firstTx],
-    } = await this.pgClient.query<Transactions>(
-      `--sql
-      select * from transactions
-      where to_address = $1
-      order by lt asc
-      limit 1
-    `,
-      [address]
+  async findGaps(address: string, limit = DEFAULT_GAP_LIMIT): Promise<Gap[]> {
+    const rows = await this.query<GapRow>(
+      `with a as (select id, start_lt, frontier_lt from $S.addresses where address = $1)
+       select t.lt::text, t.prev_lt::text, t.prev_hash,
+         coalesce(
+           (select max(q.lt) from $S.transactions q where q.address_id = a.id and q.lt < t.lt),
+           a.start_lt
+         )::text as floor_lt
+       ${FROM_UNLINKED}
+       order by t.lt asc
+       limit $2`,
+      [address, limit],
     );
-
-    return firstTx;
-  }
-
-  async write(address: string, transactions: Transaction[]) {
-    const ltHashes = transactions.map((tx) => ({
-      lt: tx.lt.toString(),
-      hash: tx.hash().toString("hex"),
+    return rows.map((row) => ({
+      address,
+      aboveLt: BigInt(row.lt),
+      prevLt: BigInt(row.prev_lt),
+      prevHash: toBuffer(row.prev_hash),
+      floorLt: BigInt(row.floor_lt),
     }));
+  }
 
-    const existing = await this.existsList(address, ltHashes);
+  async advanceFrontier(address: string): Promise<TxId | null> {
+    const [row] = await this.query<TxIdRow>(
+      `with a as (select id, start_lt, frontier_lt from $S.addresses where address = $1),
+       gap as (select t.lt ${FROM_UNLINKED} order by t.lt asc limit 1),
+       f as (
+         select t.lt, t.hash from a join $S.transactions t on t.address_id = a.id
+         where t.lt > coalesce(a.frontier_lt, a.start_lt)
+           and (not exists (select 1 from gap) or t.lt < (select lt from gap))
+         order by t.lt desc limit 1
+       ),
+       upd as (
+         update $S.addresses s set frontier_lt = f.lt, frontier_hash = f.hash, updated_at = now()
+         from f
+         where s.id = (select id from a) and (s.frontier_lt is null or s.frontier_lt < f.lt)
+         returning s.frontier_lt, s.frontier_hash
+       )
+       select coalesce((select frontier_lt from upd), (select frontier_lt from a))::text as lt,
+         coalesce((select frontier_hash from upd),
+           (select frontier_hash from $S.addresses where id = (select id from a))) as hash`,
+      [address],
+    );
+    return row ? txIdFrom(row.lt, row.hash) : null;
+  }
 
-    const insertBatch: TransactionsInitializer[] = transactions
-      .map((tx, i) => {
-        if (existing[i]) {
-          return [];
-        }
+  async markSynced(addresses: string[], syncLt: bigint, utime: number): Promise<void> {
+    if (addresses.length === 0) return;
+    await this.query(
+      `update $S.addresses a set synced_lt = $2, synced_utime = $3, updated_at = now()
+       where a.address = any($1::text[]) and a.synced_lt < $2
+         and a.frontier_lt is not distinct from
+           (select max(t.lt) from $S.transactions t where t.address_id = a.id)`,
+      [addresses, syncLt.toString(), utime],
+    );
+  }
 
-        const serialized = this.serialize(tx);
-        if (serialized) {
-          return serialized;
-        }
+  async read(address: string, afterLt: bigint, uptoLt: bigint, limit: number): Promise<TxRecord[]> {
+    const rows = await this.query<TransactionRow>(
+      `select t.lt::text, t.hash, t.prev_lt::text, t.prev_hash, t.utime::text, t.boc
+       from $S.transactions t join $S.addresses a on a.id = t.address_id
+       where a.address = $1 and t.lt > $2 and t.lt <= $3
+       order by t.lt asc
+       limit $4`,
+      [address, afterLt.toString(), uptoLt.toString(), limit],
+    );
+    return rows.map((row) => ({
+      address,
+      lt: BigInt(row.lt),
+      hash: toBuffer(row.hash),
+      prevLt: BigInt(row.prev_lt),
+      prevHash: toBuffer(row.prev_hash),
+      utime: Number(row.utime),
+      boc: toBuffer(row.boc),
+    }));
+  }
 
-        return [];
-      })
-      .flat();
+  getCursor(consumer: string, address: string): Promise<bigint | null> {
+    return this.consumerState.getCursor(consumer, address);
+  }
 
-    if (insertBatch.length === 0) {
-      logger.info(
-        `[${toFriendlyAddress(address)}]: no new transactions to write`
-      );
+  setCursor(consumer: string, address: string, lt: bigint): Promise<void> {
+    return this.consumerState.setCursor(consumer, address, lt);
+  }
 
-      return [];
-    }
+  compareAndSetCursor(
+    consumer: string,
+    address: string,
+    expected: bigint | null,
+    lt: bigint,
+  ): Promise<boolean> {
+    return this.consumerState.compareAndSetCursor(consumer, address, expected, lt);
+  }
 
-    const { query, params } = InsertQuery({
-      tableName: "transactions",
-      records: insertBatch,
+  listCursors(consumer?: string): Promise<CursorState[]> {
+    return this.consumerState.listCursors(consumer);
+  }
+
+  recordFailure(consumer: string, address: string, error: string): Promise<CursorState | null> {
+    return this.consumerState.recordFailure(consumer, address, error);
+  }
+
+  saveConsumer(name: string, order: ConsumerOrder): Promise<void> {
+    return this.consumerState.saveConsumer(name, order);
+  }
+
+  listConsumers(): Promise<ConsumerRecord[]> {
+    return this.consumerState.listConsumers();
+  }
+
+  deleteConsumer(name: string): Promise<void> {
+    return this.consumerState.deleteConsumer(name);
+  }
+
+  putDeadLetter(letter: DeadLetter): Promise<void> {
+    return this.consumerState.putDeadLetter(letter);
+  }
+
+  updateDeadLetter(letter: DeadLetter): Promise<boolean> {
+    return this.consumerState.updateDeadLetter(letter);
+  }
+
+  listDeadLetters(filter?: DeadLetterFilter): Promise<DeadLetter[]> {
+    return this.consumerState.listDeadLetters(filter);
+  }
+
+  deleteDeadLetter(consumer: string, address: string, lt: bigint): Promise<boolean> {
+    return this.consumerState.deleteDeadLetter(consumer, address, lt);
+  }
+
+  backlog(consumer: string, uptoLt?: bigint): Promise<Backlog[]> {
+    return this.consumerState.backlog(consumer, uptoLt);
+  }
+
+  /**
+   * Session-level advisory lock keyed on (schema, consumer name), held on a
+   * dedicated connection (one pool client per running consumer) until released.
+   */
+  lockConsumer(name: string): Promise<ConsumerLock | null> {
+    return acquireConsumerLock(this.db, this.schema, name);
+  }
+
+  async transaction<T>(fn: (tx: StoreTransaction) => Promise<T>): Promise<T> {
+    return this.db.transaction((client) => {
+      const boundToTransaction: PgDatabase = {
+        query: (text, params) => client.query(text, params),
+        // Already inside a transaction: nested calls simply join it.
+        transaction: (nested) => nested(client),
+      };
+      const store = new PgStore(boundToTransaction, { schema: this.schema });
+      return fn({ store, db: client });
     });
-
-    await this.pgClient.query(`${query}`, params);
-
-    return insertBatch;
   }
 
-  serialize(tx: Transaction): TransactionsInitializer | null {
-    if (
-      tx.inMessage?.info.type !== "external-in" &&
-      tx.inMessage?.info.type !== "internal"
-    ) {
-      return null;
-    }
-
-    const createdAt = new Date(tx.now * 1000);
-    const hash = tx.hash().toString("hex");
-    const boc = beginCell().store(storeTransaction(tx)).asCell().toBoc();
-
-    if (tx.inMessage?.info.type === "internal") {
-      return {
-        from_address: toRawAddress(tx.inMessage.info.src),
-        to_address: toRawAddress(tx.inMessage.info.dest),
-        amount: tx.inMessage.info.value.coins.toString(),
-        lt: tx.lt.toString(),
-        hash,
-        boc,
-        transaction_created_at: createdAt,
-        prev_lt: tx.prevTransactionLt.toString(),
-        prev_hash: bigIntToHex(tx.prevTransactionHash),
-      };
-    }
-
-    if (tx.inMessage?.info.type === "external-in") {
-      return {
-        from_address: tx.inMessage.info.src?.toString() || "external-in",
-        to_address: toRawAddress(tx.inMessage.info.dest),
-        amount: "0",
-        lt: tx.lt.toString(),
-        hash,
-        boc,
-        transaction_created_at: createdAt,
-        prev_lt: tx.prevTransactionLt.toString(),
-        prev_hash: bigIntToHex(tx.prevTransactionHash),
-      };
-    }
-
-    return null;
-  }
-
-  async close() {
-    await this.pgClient.end();
+  /** Runs `sql` with `$S` replaced by the schema; rows are typed by the caller. */
+  private async query<Row = unknown>(
+    sql: string,
+    params?: unknown[],
+    db: PgQueryable = this.db,
+  ): Promise<Row[]> {
+    const { rows } = await db.query(sql.replaceAll(SCHEMA_PLACEHOLDER, this.quotedSchema), params);
+    return rows as Row[];
   }
 }

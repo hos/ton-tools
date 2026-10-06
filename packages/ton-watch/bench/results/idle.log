@@ -1,0 +1,13 @@
+poll: 4,125 calls/min for 1000 addresses (4087 tx indexed meanwhile, lag p50 28s p99 28s) {
+  getTip: 6.999985928336621,
+  getAccountState: 3650.7426611249884,
+  getTransactions: 490.4990139784446,
+}
+blocks: 333 calls/min for 1000 addresses (0 tx indexed meanwhile, lag p50 2s p99 2s) {
+  getTip: 41.24989867993636,
+  getAccountState: 0,
+  getTransactions: 0,
+  lookupBlock: 108.99973226940759,
+  listBlockTransactions: 182.999550507354,
+}
+saved /Users/hs/workplace/hos/ton-tools/packages/ton-watch/bench/results/idle.json

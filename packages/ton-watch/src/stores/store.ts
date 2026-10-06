@@ -1,78 +1,75 @@
-import type { Address, Transaction } from "@ton/core";
-import type { TransactionsInitializer } from "./pg/pg-client";
+import type { AddressState, Gap, TxId, TxRecord } from "../core/types";
+import type { ConsumerStateStore } from "./consumer-state";
 
-export type TxCursor = {
-  lt: bigint | string;
-  hash: bigint | string;
-};
+/** How a store starts tracking an address. */
+export interface AddAddressOptions {
+  /** Transactions with `lt <= startLt` are out of scope. 0 = full history. */
+  startLt: bigint;
+  /** Known-complete chain lt at the time of adding (e.g. when starting "from now"). */
+  syncedLt?: bigint;
+  /** Chain unix time of `syncedLt`. */
+  syncedUtime?: number;
+}
 
-export type StoreTx = {
-  lt: string;
-  hash: string;
-  prev_lt?: string | null;
-  prev_hash?: string | null;
-};
+/** Handed to the callback of `Store.transaction`. */
+export interface StoreTransaction {
+  /** The same store, bound to the open database transaction. */
+  store: Store;
+  /** The store's native transaction handle (for `PgStore`, the `pg`/PGlite client). */
+  db: unknown;
+}
 
-export interface Store {
-  /**
-   * This is a good place to run migrations, and initialize the store.
-   * @param args Any data that you want to pass to the store implementation.
-   * @returns 
-   */
-  start: (args: any) => Promise<void>;
+/**
+ * Storage for the indexer. Writes are idempotent and may arrive in any order and
+ * concurrently; completeness is derived from the prev links, so a store never needs
+ * to know which fetch produced a transaction. `PgStore` is the reference
+ * implementation, `MemoryStore` the minimal one.
+ *
+ * Consumer positions, failures and dead letters are the `ConsumerStateStore` half.
+ * Addresses are always raw (`<workchain>:<hex>`); `TonWatch` normalizes them.
+ */
+export interface Store extends ConsumerStateStore {
+  /** Creates/upgrades the schema. Idempotent. Never drops data. */
+  migrate(): Promise<void>;
+  close(): Promise<void>;
 
-  /**
-   * @param address Address to check if it exists in the database.
-   * @param cursor Cursor to check if the address has been processed.
-   * @returns
-   */
-  exists: (address: string, cursor: TxCursor) => Promise<boolean>;
-
-  /**
-   * @param address Address to store in the database, it must be converted to raw address, in the store implementations.
-   * @param startLt Optional, the start "lt" which we are interested in, history older than this "lt" will be ignored.
-   * @returns
-   */
-  setAddress: (address: string, startLt?: bigint) => Promise<void>;
-
-  /**
-   * @returns All addresses stored in the database.
-   */
-  allAddresses: () => Promise<string[]>;
-
-  /**
-   * @param address Address to get the oldest transaction for a specific address.
-   * @returns The oldest transaction.
-   */
-  getOldestTx: (address: string) => Promise<StoreTx>;
+  /** Starts tracking an address. Re-activates it if it was removed; never changes its startLt. */
+  addAddress(address: string, options: AddAddressOptions): Promise<void>;
+  /** Stops tracking. With `purge`, also deletes its transactions, cursors and dead letters. */
+  removeAddress(address: string, options?: { purge?: boolean }): Promise<void>;
+  getAddress(address: string): Promise<AddressState | null>;
+  listAddresses(options?: { includeInactive?: boolean }): Promise<AddressState[]>;
 
   /**
-   * @param address Address to get the latest (most recent) transaction for a specific address.
-   * @returns The latest transaction.
+   * Inserts transactions of one address, ignoring ones already stored and ones at or
+   * below its startLt. Returns how many were new.
    */
-  getLatestTx: (address: string) => Promise<StoreTx>;
+  write(address: string, txs: TxRecord[]): Promise<number>;
+
+  /** Missing ranges above the frontier, oldest first. */
+  findGaps(address: string, limit?: number): Promise<Gap[]>;
+
+  /** Recomputes and persists the frontier (it only ever moves forward). */
+  advanceFrontier(address: string): Promise<TxId | null>;
 
   /**
-   * Returns the oldest transaction that for which the previous transaction is not stored.
-   * It will return nothing if the latest transaction prev_lt is equal to the address.start_lt on adding address.
-   * @param address 
-   * @returns 
+   * Records that, as of a chain block with `syncLt`, the address had no transactions
+   * beyond what is stored. Applied only to addresses whose frontier equals their
+   * head, i.e. nothing is missing.
    */
-  getOldestNoPrevTx: (address: string) => Promise<StoreTx>;
-  write: (
-    address: string,
-    transactions: Transaction[]
-  ) => Promise<TransactionsInitializer[]>;
+  markSynced(addresses: string[], syncLt: bigint, utime: number): Promise<void>;
+
+  /** Transactions with `afterLt < lt <= uptoLt`, ascending. */
+  read(address: string, afterLt: bigint, uptoLt: bigint, limit: number): Promise<TxRecord[]>;
 
   /**
-   * Store implementation can close the database connection, or do any other cleanup.
-   * @returns
+   * Optional: runs `fn` atomically. Consumers use it to commit the handler's own
+   * writes (through `db`) together with the cursor, giving exactly-once effects.
    */
-  close: () => Promise<void>;
+  transaction?<T>(fn: (tx: StoreTransaction) => Promise<T>): Promise<T>;
+}
 
-  /**
-   * Store must call this function for each transaction it receives.
-   * @returns
-   */
-  onTransaction?: (tx: Transaction) => Promise<void>;
+/** Runs `fn` in a store transaction if the store has them, otherwise directly. */
+export function runAtomically<T>(store: Store, fn: (store: Store) => Promise<T>): Promise<T> {
+  return store.transaction ? store.transaction((tx) => fn(tx.store)) : fn(store);
 }

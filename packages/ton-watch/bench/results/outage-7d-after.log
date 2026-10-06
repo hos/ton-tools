@@ -1,0 +1,19 @@
+store: postgres schema bench_outage_7d_1791290415163
+  30.0s: 2608 tx (86.9 tx/s), 16692 calls, walks 10, stuck 0
+  60.0s: 64622 tx (1,077 tx/s), 25795 calls, walks 10, stuck 0
+  90.0s: 165750 tx (1,842 tx/s), 32337 calls, walks 10, stuck 0
+  120s: 265399 tx (2,209 tx/s), 38873 calls, walks 10, stuck 0
+  150s: 372377 tx (2,480 tx/s), 45956 calls, walks 10, stuck 0
+  180s: 476278 tx (2,643 tx/s), 52758 calls, walks 10, stuck 0
+  210s: 543172 tx (2,583 tx/s), 57123 calls, walks 10, stuck 0
+  240s: 599689 tx (2,496 tx/s), 60797 calls, walks 10, stuck 0
+  270s: 629832 tx (2,330 tx/s), 62729 calls, walks 10, stuck 0
+  300s: 648329 tx (2,159 tx/s), 63885 calls, walks 10, stuck 0
+  330s: 663179 tx (2,008 tx/s), 64820 calls, walks 10, stuck 0
+  360s: 676843 tx (1,878 tx/s), 65689 calls, walks 10, stuck 0
+  390s: 688347 tx (1,763 tx/s), 66417 calls, walks 10, stuck 0
+  420s: 697038 tx (1,658 tx/s), 66987 calls, walks 10, stuck 0
+  450s: 703583 tx (1,562 tx/s), 67435 calls, walks 10, stuck 0
+  480s: 706799 tx (1,471 tx/s), 67636 calls, walks 10, stuck 0
+outage 7d: 709477 tx in 508s → 1,396 tx/s, 67803 calls (133/s), complete 10/10, stuck ranges 0
+saved /Users/hs/workplace/hos/ton-tools/packages/ton-watch/bench/results/outage.json

@@ -1,6 +1,6 @@
-import { LiteSingleEngine, LiteClient } from "ton-lite-client";
-import { intToIP } from "./ip.ts";
+import { LiteClient, LiteSingleEngine } from "ton-lite-client";
 import { delay } from "./delay.ts";
+import { intToIP } from "./ip.ts";
 
 /**
  * Represents a server definition.
@@ -95,9 +95,7 @@ export interface BenchmarkLiteServersReturn {
  * @returns A promise that resolves to an array of LiteServer configs.
  * @throws {Error} If the servers are invalid.
  */
-export async function getServers(
-  servers: ServerDefinition
-): Promise<LsConfig[] | never> {
+export async function getServers(servers: ServerDefinition): Promise<LsConfig[] | never> {
   if (Array.isArray(servers)) {
     return servers;
   }
@@ -131,7 +129,7 @@ export async function getServers(
  */
 export async function filterLiteServers(
   serversOrNetwork: ServerDefinition,
-  options?: FilterLiteServersOptions
+  options?: FilterLiteServersOptions,
 ): Promise<BenchmarkLiteServersReturn> {
   const { timeout = 3000, divergeFromAvg, verbosity } = options || {};
 
@@ -149,26 +147,20 @@ export async function filterLiteServers(
 
       const res: LiteServerConfigState = { lsConfig: enhanced, ...testResult };
       return res;
-    })
+    }),
   );
 
-  const fulfilled = results
-    .map((p) => (p.status === "fulfilled" ? p.value : []))
-    .flat() as LiteServerConfigState[];
+  const fulfilled = results.flatMap((p) =>
+    p.status === "fulfilled" ? p.value : [],
+  ) as LiteServerConfigState[];
 
-  const rejected = results
-    .map((p) => (p.status === "rejected" ? p.reason : []))
-    .flat();
+  const rejected = results.flatMap((p) => (p.status === "rejected" ? p.reason : []));
 
   const good = fulfilled.filter((c) => c.successCount > 0);
 
-  const goodAvg =
-    good.reduce((total, c) => total + c.avgTiming, 0) / good.length;
-  const fast = divergeFromAvg
-    ? good.filter((c) => c.avgTiming <= goodAvg + divergeFromAvg)
-    : good;
-  const fastAvg =
-    fast.reduce((total, c) => total + c.avgTiming, 0) / fast.length;
+  const goodAvg = good.reduce((total, c) => total + c.avgTiming, 0) / good.length;
+  const fast = divergeFromAvg ? good.filter((c) => c.avgTiming <= goodAvg + divergeFromAvg) : good;
+  const fastAvg = fast.reduce((total, c) => total + c.avgTiming, 0) / fast.length;
 
   if (verbosity === "info") {
     const table = fast.map((server) => ({
@@ -196,10 +188,8 @@ export async function filterLiteServers(
  * @param timeout - The timeout value for the benchmark.
  * @returns A promise that resolves to the benchmark result.
  */
-export async function benchmark(
-  ls: LsConfigResolved,
-  timeout: number
-): Promise<ServerBenchmark> {
+export async function benchmark(ls: LsConfigResolved, timeout: number): Promise<ServerBenchmark> {
+  // biome-ignore lint/suspicious/noAsyncPromiseExecutor: the timeout and the probe loop race to resolve; kept as-is in this published package.
   return new Promise<ServerBenchmark>(async (resolve) => {
     const benchmarkStart = Date.now();
     const state: ServerBenchmark = {
@@ -254,7 +244,6 @@ export async function benchmark(
 
         if (e instanceof Error && e.message.includes("Engine is closed")) {
           await delay(100);
-          continue;
         }
       }
     }

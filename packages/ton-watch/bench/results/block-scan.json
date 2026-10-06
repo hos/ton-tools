@@ -1,0 +1,37 @@
+{
+  "baseline": {
+    "measuredAt": "2026-10-06T12:40:08.014Z",
+    "hours": 1,
+    "firstSeqno": 97289684,
+    "runs": [
+      {
+        "size": 10,
+        "concurrency": 64,
+        "mcBlocks": 8777,
+        "shardBlocks": 8964,
+        "chainTxs": 151094,
+        "txs": 16369,
+        "seconds": 148.637551875,
+        "txPerSecond": 110.12694836205232,
+        "calls": 43968,
+        "callsPerSecond": 295.8068095535901,
+        "callsPerMcBlock": 5.009456534123276,
+        "errors": 0
+      },
+      {
+        "size": 1000,
+        "concurrency": 64,
+        "mcBlocks": 9133,
+        "shardBlocks": 9337,
+        "chainTxs": 159135,
+        "txs": 55924,
+        "seconds": 326.22098158299997,
+        "txPerSecond": 171.42980726937495,
+        "calls": 71868,
+        "callsPerSecond": 220.30465254337028,
+        "callsPerMcBlock": 7.869046315558962,
+        "errors": 0
+      }
+    ]
+  }
+}

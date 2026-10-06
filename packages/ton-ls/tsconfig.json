@@ -2,6 +2,7 @@
   "compilerOptions": {
     // Enable latest features
     "lib": ["ESNext", "DOM"],
+    "types": ["bun"],
     "target": "ES2022",
     "module": "NodeNext",
     "moduleDetection": "force",

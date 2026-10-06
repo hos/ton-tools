@@ -3,21 +3,35 @@
   "module": "src/index.ts",
   "type": "module",
   "scripts": {
-    "start": "bun run src/index.ts"
+    "start": "bun run src/bin/ton-watch.ts run",
+    "cli": "bun run src/bin/ton-watch.ts",
+    "test": "bun test",
+    "test:live": "LIVE=1 bun test tests/live.test.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "lint": "biome check .",
+    "format": "biome check --write ."
   },
   "dependencies": {
     "@ton/core": "^0.63.1",
-    "@ton/crypto": "^3.3.0",
-    "@types/pg": "^8.20.0",
-    "dataloader": "^2.2.3",
-    "lru_map": "^0.4.1",
-    "pg": "^8.21.0",
-    "pg-format": "^1.0.4",
-    "ton-lite-client": "^3.1.1",
-    "@ton/ls": "workspace:*"
+    "@ton/ls": "workspace:*",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
+    "ton-lite-client": "^3.1.1"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  },
   "peerDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
+  },
+  "main": "src/index.ts",
+  "bin": {
+    "ton-watch": "src/bin/ton-watch.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./toncenter": "./src/plugins/toncenter/index.ts",
+    "./parse": "./src/parse/index.ts",
+    "./webhook": "./src/webhook/index.ts"
   }
 }

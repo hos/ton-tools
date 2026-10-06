@@ -1,0 +1,527 @@
+{
+  "smoke": {
+    "measuredAt": "2026-10-06T11:42:03.101Z",
+    "hours": 2,
+    "startLt": "108154403000000",
+    "runs": [
+      {
+        "size": 1,
+        "concurrency": 1,
+        "txs": 7702,
+        "seconds": 51.394258834,
+        "txPerSecond": 149.86109683723512,
+        "calls": 485,
+        "callsPerSecond": 9.436851722417428,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 1,
+          "getTransactions": 483
+        },
+        "errors": 1,
+        "complete": "1/1"
+      },
+      {
+        "size": 1,
+        "concurrency": 32,
+        "txs": 7763,
+        "seconds": 52.910455708,
+        "txPerSecond": 146.7195830412446,
+        "calls": 489,
+        "callsPerSecond": 9.242029641526292,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 1,
+          "getTransactions": 487
+        },
+        "errors": 1,
+        "complete": "1/1"
+      },
+      {
+        "size": 10,
+        "concurrency": 1,
+        "txs": 34791,
+        "seconds": 389.391378166,
+        "txPerSecond": 89.34712464323844,
+        "calls": 3273,
+        "callsPerSecond": 8.405424936257063,
+        "callsByMethod": {
+          "getTip": 54,
+          "getAccountState": 910,
+          "getTransactions": 2309
+        },
+        "errors": 765,
+        "complete": "10/10"
+      },
+      {
+        "size": 10,
+        "concurrency": 32,
+        "txs": 34851,
+        "seconds": 74.79221545800007,
+        "txPerSecond": 465.9709541505793,
+        "calls": 2204,
+        "callsPerSecond": 29.46830745022745,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 11,
+          "getTransactions": 2192
+        },
+        "errors": 10,
+        "complete": "10/10"
+      }
+    ]
+  },
+  "before": {
+    "measuredAt": "2026-10-06T12:12:49.544Z",
+    "hours": 1,
+    "startLt": "108165860000000",
+    "runs": [
+      {
+        "size": 1,
+        "concurrency": 1,
+        "txs": 3895,
+        "seconds": 32.128291042,
+        "txPerSecond": 121.23271651480702,
+        "calls": 247,
+        "callsPerSecond": 7.687928364353616,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 2,
+          "getTransactions": 244
+        },
+        "errors": 1,
+        "complete": "1/1"
+      },
+      {
+        "size": 1,
+        "concurrency": 32,
+        "txs": 3895,
+        "seconds": 31.837530499999993,
+        "txPerSecond": 122.33989065200899,
+        "calls": 246,
+        "callsPerSecond": 7.726729935916357,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 1,
+          "getTransactions": 244
+        },
+        "errors": 0,
+        "complete": "1/1"
+      },
+      {
+        "size": 10,
+        "concurrency": 1,
+        "txs": 16882,
+        "seconds": 162.548251875,
+        "txPerSecond": 103.85839161766131,
+        "calls": 1081,
+        "callsPerSecond": 6.650332978242618,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 14,
+          "getTransactions": 1066
+        },
+        "errors": 10,
+        "complete": "10/10"
+      },
+      {
+        "size": 10,
+        "concurrency": 32,
+        "txs": 17681,
+        "seconds": 43.43415854200002,
+        "txPerSecond": 407.07591889693924,
+        "calls": 1127,
+        "callsPerSecond": 25.9473197554918,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 13,
+          "getTransactions": 1113
+        },
+        "errors": 5,
+        "complete": "10/10"
+      },
+      {
+        "size": 100,
+        "concurrency": 1,
+        "txs": 38135,
+        "seconds": 315.38718441699996,
+        "txPerSecond": 120.9148687207864,
+        "calls": 2539,
+        "callsPerSecond": 8.050422228453565,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 111,
+          "getTransactions": 2427
+        },
+        "errors": 11,
+        "complete": "100/100"
+      },
+      {
+        "size": 100,
+        "concurrency": 32,
+        "txs": 41068,
+        "seconds": 54.73736445900006,
+        "txPerSecond": 750.2736093689928,
+        "calls": 2785,
+        "callsPerSecond": 50.879322150887425,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 152,
+          "getTransactions": 2632
+        },
+        "errors": 72,
+        "complete": "100/100"
+      },
+      {
+        "size": 1000,
+        "concurrency": 1,
+        "txs": 64640,
+        "seconds": 711.5847358750001,
+        "txPerSecond": 90.83949773109654,
+        "calls": 5495,
+        "callsPerSecond": 7.722200495550363,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 1110,
+          "getTransactions": 4384
+        },
+        "errors": 111,
+        "complete": "1000/1000"
+      },
+      {
+        "size": 1000,
+        "concurrency": 32,
+        "txs": 75362,
+        "seconds": 78.0282539580001,
+        "txPerSecond": 965.8296344881014,
+        "calls": 6341,
+        "callsPerSecond": 81.26543499759894,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 1284,
+          "getTransactions": 5056
+        },
+        "errors": 284,
+        "complete": "1000/1000"
+      }
+    ]
+  },
+  "after-nosplit": {
+    "measuredAt": "2026-10-06T12:23:14.746Z",
+    "hours": 1,
+    "startLt": "108170569000000",
+    "runs": [
+      {
+        "size": 1,
+        "concurrency": 32,
+        "split": false,
+        "txs": 3745,
+        "seconds": 32.696136875,
+        "txPerSecond": 114.53952539767742,
+        "calls": 239,
+        "callsPerSecond": 7.309732061427211,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 3,
+          "getTransactions": 235
+        },
+        "errors": 2,
+        "complete": "1/1"
+      },
+      {
+        "size": 10,
+        "concurrency": 32,
+        "split": false,
+        "txs": 16813,
+        "seconds": 39.932145999999996,
+        "txPerSecond": 421.0392298976369,
+        "calls": 1073,
+        "callsPerSecond": 26.870581911625788,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 14,
+          "getTransactions": 1058
+        },
+        "errors": 6,
+        "complete": "10/10"
+      },
+      {
+        "size": 100,
+        "concurrency": 32,
+        "split": false,
+        "txs": 35674,
+        "seconds": 42.194438207999994,
+        "txPerSecond": 845.466879405833,
+        "calls": 2425,
+        "callsPerSecond": 57.472029561000866,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 141,
+          "getTransactions": 2283
+        },
+        "errors": 53,
+        "complete": "100/100"
+      },
+      {
+        "size": 1000,
+        "concurrency": 32,
+        "split": false,
+        "txs": 56444,
+        "seconds": 60.28124891700002,
+        "txPerSecond": 936.344236625166,
+        "calls": 5106,
+        "callsPerSecond": 84.70295642066647,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 1245,
+          "getTransactions": 3860
+        },
+        "errors": 258,
+        "complete": "1000/1000"
+      }
+    ]
+  },
+  "after-split": {
+    "measuredAt": "2026-10-06T12:27:41.612Z",
+    "hours": 1,
+    "startLt": "108171017000000",
+    "runs": [
+      {
+        "size": 1,
+        "concurrency": 32,
+        "split": true,
+        "txs": 3704,
+        "seconds": 25.704732125000003,
+        "txPerSecond": 144.09798094715603,
+        "calls": 342,
+        "callsPerSecond": 13.304943165207172,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 2,
+          "getTransactions": 235
+        },
+        "errors": 6,
+        "complete": "1/1"
+      },
+      {
+        "size": 1,
+        "concurrency": 64,
+        "split": true,
+        "txs": 3704,
+        "seconds": 26.690925042,
+        "txPerSecond": 138.77375902751598,
+        "calls": 341,
+        "callsPerSecond": 12.775877923429523,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 2,
+          "getTransactions": 234
+        },
+        "errors": 5,
+        "complete": "1/1"
+      },
+      {
+        "size": 10,
+        "concurrency": 32,
+        "split": true,
+        "txs": 16709,
+        "seconds": 25.911378042000003,
+        "txPerSecond": 644.8518474361425,
+        "calls": 1214,
+        "callsPerSecond": 46.85200447587989,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 24,
+          "getTransactions": 1053
+        },
+        "errors": 17,
+        "complete": "10/10"
+      },
+      {
+        "size": 10,
+        "concurrency": 64,
+        "split": true,
+        "txs": 16800,
+        "seconds": 26.060602708000005,
+        "txPerSecond": 644.6512457228315,
+        "calls": 1125,
+        "callsPerSecond": 43.168610204653895,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 17,
+          "getTransactions": 1057
+        },
+        "errors": 9,
+        "complete": "10/10"
+      },
+      {
+        "size": 100,
+        "concurrency": 32,
+        "split": true,
+        "txs": 35781,
+        "seconds": 32.713601,
+        "txPerSecond": 1093.7652507285884,
+        "calls": 3073,
+        "callsPerSecond": 93.9364639190898,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 147,
+          "getTransactions": 2306
+        },
+        "errors": 104,
+        "complete": "100/100"
+      },
+      {
+        "size": 100,
+        "concurrency": 64,
+        "split": true,
+        "txs": 36137,
+        "seconds": 25.178922916000012,
+        "txPerSecond": 1435.2083335954235,
+        "calls": 3142,
+        "callsPerSecond": 124.7869104839035,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 152,
+          "getTransactions": 2320
+        },
+        "errors": 80,
+        "complete": "100/100"
+      },
+      {
+        "size": 1000,
+        "concurrency": 32,
+        "split": true,
+        "txs": 56904,
+        "seconds": 52.90296312500001,
+        "txPerSecond": 1075.6297310898499,
+        "calls": 6240,
+        "callsPerSecond": 117.9518051806668,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 1252,
+          "getTransactions": 3902
+        },
+        "errors": 316,
+        "complete": "1000/1000"
+      },
+      {
+        "size": 1000,
+        "concurrency": 64,
+        "split": true,
+        "txs": 57680,
+        "seconds": 44.88542029199999,
+        "txPerSecond": 1285.049791775714,
+        "calls": 6295,
+        "callsPerSecond": 140.2459854235111,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 1248,
+          "getTransactions": 3961
+        },
+        "errors": 308,
+        "complete": "1000/1000"
+      }
+    ]
+  },
+  "after-split-tuned": {
+    "measuredAt": "2026-10-06T12:32:05.045Z",
+    "hours": 1,
+    "startLt": "108172215000000",
+    "runs": [
+      {
+        "size": 1,
+        "concurrency": 64,
+        "split": true,
+        "txs": 3666,
+        "seconds": 12.58294625,
+        "txPerSecond": 291.3467106322575,
+        "calls": 659,
+        "callsPerSecond": 52.37247198763167,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 5,
+          "getTransactions": 233
+        },
+        "errors": 20,
+        "complete": "1/1"
+      },
+      {
+        "size": 10,
+        "concurrency": 64,
+        "split": true,
+        "txs": 16402,
+        "seconds": 14.196081332999999,
+        "txPerSecond": 1155.3892666050142,
+        "calls": 1902,
+        "callsPerSecond": 133.98063559826466,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 16,
+          "getTransactions": 1048
+        },
+        "errors": 39,
+        "complete": "10/10"
+      },
+      {
+        "size": 100,
+        "concurrency": 64,
+        "split": true,
+        "txs": 35207,
+        "seconds": 23.17756875,
+        "txPerSecond": 1519.011781595945,
+        "calls": 4124,
+        "callsPerSecond": 177.93065547481118,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 153,
+          "getTransactions": 2278
+        },
+        "errors": 102,
+        "complete": "100/100"
+      }
+    ]
+  },
+  "toncenter-boost-free": {
+    "measuredAt": "2026-10-06T13:37:28.896Z",
+    "hours": 1,
+    "startLt": "108182108000000",
+    "runs": [
+      {
+        "size": 1,
+        "concurrency": 64,
+        "split": true,
+        "history": "toncenter:boost",
+        "txs": 3914,
+        "seconds": 4.244883542,
+        "txPerSecond": 922.0512085370185,
+        "calls": 35,
+        "callsPerSecond": 8.245220311393881,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 1,
+          "getTransactions": 0
+        },
+        "errors": 0,
+        "complete": "1/1"
+      },
+      {
+        "size": 10,
+        "concurrency": 64,
+        "split": true,
+        "history": "toncenter:boost",
+        "txs": 16578,
+        "seconds": 13.793969125,
+        "txPerSecond": 1201.8295712982465,
+        "calls": 1179,
+        "callsPerSecond": 85.47213563521731,
+        "callsByMethod": {
+          "getTip": 1,
+          "getAccountState": 15,
+          "getTransactions": 666
+        },
+        "errors": 19,
+        "complete": "10/10"
+      }
+    ]
+  }
+}

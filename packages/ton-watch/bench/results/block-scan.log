@@ -1,0 +1,9 @@
+  N=10: 0/8776 mc blocks, 143 tx, 1.3s
+  N=10: 3200/8776 mc blocks, 6098 tx, 56.0s
+  N=10: 6400/8776 mc blocks, 12160 tx, 109s
+block scan N=10: 8777 mc blocks / 8964 shard blocks, 16369 tx in 149s → 110 tx/s, 43968 calls (296/s, 5.0/mc block)
+  N=1000: 0/9132 mc blocks, 476 tx, 2.7s
+  N=1000: 3200/9132 mc blocks, 20335 tx, 118s
+  N=1000: 6400/9132 mc blocks, 39957 tx, 232s
+block scan N=1000: 9133 mc blocks / 9337 shard blocks, 55924 tx in 326s → 171 tx/s, 71868 calls (220/s, 7.9/mc block)
+saved /Users/hs/workplace/hos/ton-tools/packages/ton-watch/bench/results/block-scan.json

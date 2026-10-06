@@ -1,0 +1,29 @@
+{
+  "source": "toncenter.com api/v2 getTransactions (boc) + api/v3 transactions (summary), mainnet",
+  "address": "0:852443F8599FE6A5DA34FE43049AC4E0BEB3071BB2BFB56635EA9421287C283A",
+  "lt": "108207748000020",
+  "hash": "47c766d5144f24f6945222f2885aa5038dae580b4c8bddaae0de58734236e8bc",
+  "boc": "te6cckECBwEAAbYAA7N4UkQ/hZn+al2jT+QwSaxOC+swcbsr+1ZjXqlCEofCg6AABiahRhqRRW/kb0XviiNNIFX9wiV8hNGXTVfGWy3QxxGEQPcEtPQAAAYmoUQySMasUTggABRSyKgBAgMBAaAEAIJyX87l8QaxdzUKSNyQyKkNolWlkoRsyWrLV1xWbfVyJ0Or/CEDErPTC8G40n7oNYYiOA51PigYrj74+BnF3b+82wIVDEBJDlgHEBhSyJEFBgD7SAF2JgB1gvWEQDTiSW4wOnYZC/ip5Kl4wYXVZjMQAI/4yQAhSRD+Fmf5qXaNP5DBJrE4L6zBxuyv7VmNeqUISh8KDpDlgHEABVs8AADE1CjDUibViicEAAAAABiYGBAqMrYys7kwtpApujC5OZAFBSkysxGqtboYJi0kpSDAAJ5ASCw9CQAAAAAAAAAAAA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFvAAAAAAAAAAAAAAAABLUUtpEnlC4z33SeGHxRhIq/htUa7i3D8ghbwxhQTn44EItxcdA==",
+  "toncenter": {
+    "aborted": false,
+    "compute_success": true,
+    "action_success": true,
+    "bounce": null,
+    "in_msg": {
+      "source": "0:BB13003AC17AC2201A7124B7181D3B0C85FC54F254BC60C2EAB319880047FC64",
+      "destination": "0:852443F8599FE6A5DA34FE43049AC4E0BEB3071BB2BFB56635EA9421287C283A",
+      "value": "962600000",
+      "opcode": "0x00000000",
+      "bounce": false,
+      "bounced": false,
+      "fwd_fee": "44446"
+    },
+    "in_msg_decoded": {
+      "@type": "text_comment",
+      "comment": "100 Telegram Stars \n\nRef#Ukt0LZIJA",
+      "type": "text_comment"
+    },
+    "out_msgs": 0,
+    "total_fees": "38469"
+  }
+}

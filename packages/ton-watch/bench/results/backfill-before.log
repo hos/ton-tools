@@ -1,0 +1,10 @@
+window: last 1h, startLt 108165860000000
+N=1 c=1: 3895 tx in 32.1s → 121 tx/s, 247 calls (7.7/s), 1 errors, complete 1/1
+N=1 c=32: 3895 tx in 31.8s → 122 tx/s, 246 calls (7.7/s), 0 errors, complete 1/1
+N=10 c=1: 16882 tx in 163s → 104 tx/s, 1081 calls (6.7/s), 10 errors, complete 10/10
+N=10 c=32: 17681 tx in 43.4s → 407 tx/s, 1127 calls (25.9/s), 5 errors, complete 10/10
+N=100 c=1: 38135 tx in 315s → 121 tx/s, 2539 calls (8.1/s), 11 errors, complete 100/100
+N=100 c=32: 41068 tx in 54.7s → 750 tx/s, 2785 calls (50.9/s), 72 errors, complete 100/100
+N=1000 c=1: 64640 tx in 712s → 90.8 tx/s, 5495 calls (7.7/s), 111 errors, complete 1000/1000
+N=1000 c=32: 75362 tx in 78.0s → 966 tx/s, 6341 calls (81.3/s), 284 errors, complete 1000/1000
+saved /Users/hs/workplace/hos/ton-tools/packages/ton-watch/bench/results/backfill.json

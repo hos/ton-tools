@@ -1,0 +1,117 @@
+{
+  "source": "toncenter.com api/v2 getTransactions (boc) + api/v3 transactions (summary), mainnet",
+  "address": "0:D8D8658C26CAF28E2DA496B8649DF54EED85A2894E96916A1F2D2389DA77A252",
+  "lt": "108207731000032",
+  "hash": "3cec03a67eb74bb0f538a6330d35e9cc506b1d1af1eb7ed13aada78604649d8b",
+  "boc": "te6cckECDAEAAoYAA7V9jYZYwmyvKOLaSWuGSd9U7thaKJTpaRah8tI4nad6JSAABiahNeQuAxlmdsYOHo3XHLdVBqy/K/g+Y/BZShfjibyrI91ofojQAAYmnZjTxEasUTewADRgXawoAQIDAgHgBAUAgnLt0TFZ2KouaftLYrH/MNJtN/wOp0MQyDwPxXlbc0reTO9iMVVqOC9LnXgWQ3UvVIysU2Ad0HmF0ujLNeJOM0IQASMERMkEeGjAEGBS0C4BK2aVbPILAbFoABb5HygLHTTaU681XGQk6xsoZjKRrzxDAkcJoq3Y3HQ5ADY2GWMJsryji2klrhknfVO7YWiiU6WkWofLSOJ2neiUkEeGjAAGA21yAADE1Ca8hb7Viib2wAYBAd8KAbQPin6lOuwtlAroPohgkYTnKgAIAYV2Z0CdvjHUbEZIh9OeJiUc7WXn2NYNREBzHPDK/nVpAALfI+UBY6abSnXmq4yEnWNlDMZSNeeIYEjhNFW7G46HCB3NZQEHAVXjoNSCgBHLSMzaB7v+F9v2lw3mVMgLpsOG4RkAYISJ9AWX3YPyRMPvMPZACAIJasUhcQ4JCQAILhz6ggD3WAGxsMsYTZXlHFtJLXDJO+qd2wtFEp0tItQ+WkcTtO9EpQAC3yPlAWOmm0p15quMhJ1jZQzGUjXniGBI4TRVuxuOhxBHeCBQBVs8AADE1Ca8hcLViib2f////4fFP1KddhbKBXQfRDBIwnOVAAQAwrszoE7fGOo2IyRDwACeQT4MPQkAAAABR/QAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANhSONA=",
+  "toncenter": {
+    "aborted": true,
+    "compute_success": false,
+    "action_success": null,
+    "bounce": {
+      "type": "ok",
+      "msg_size": {
+        "cells": "0",
+        "bits": "0"
+      },
+      "msg_fees": "22221",
+      "fwd_fees": "44446"
+    },
+    "in_msg": {
+      "source": "0:0B7C8F94058E9A6D29D79AAE3212758D94331948D79E21812384D156EC6E3A1C",
+      "destination": "0:D8D8658C26CAF28E2DA496B8649DF54EED85A2894E96916A1F2D2389DA77A252",
+      "value": "300000000",
+      "opcode": "0x0f8a7ea5",
+      "bounce": true,
+      "bounced": false,
+      "fwd_fee": "112313"
+    },
+    "in_msg_decoded": {
+      "@type": "jetton_transfer",
+      "query_id": "4245818662564937352",
+      "amount": {
+        "@type": "var_uint",
+        "len": "6",
+        "value": "10000000000000"
+      },
+      "destination": {
+        "@type": "addr_std",
+        "anycast": {
+          "@type": "nothing_from_maybe"
+        },
+        "workchain_id": "0",
+        "address": "C2BB33A04EDF18EA36232443E9CF13128E76B2F3EC6B06A220398E78657F3AB4"
+      },
+      "response_destination": {
+        "@type": "addr_std",
+        "anycast": {
+          "@type": "nothing_from_maybe"
+        },
+        "workchain_id": "0",
+        "address": "0B7C8F94058E9A6D29D79AAE3212758D94331948D79E21812384D156EC6E3A1C"
+      },
+      "custom_payload": {
+        "@type": "nothing_from_maybe"
+      },
+      "forward_ton_amount": {
+        "@type": "var_uint",
+        "len": "4",
+        "value": "250000000"
+      },
+      "forward_payload": {
+        "@type": "second_from_either",
+        "value": {
+          "@type": "dedust_swap",
+          "": {
+            "@type": "step",
+            "pool_addr": {
+              "@type": "addr_std",
+              "anycast": {
+                "@type": "nothing_from_maybe"
+              },
+              "workchain_id": "0",
+              "address": "8E5A4666D03DDFF0BEDFB4B86F32A6405D361C3708C80304244FA02CBEEC1F92"
+            },
+            "params": {
+              "@type": "step_params",
+              "kind": false,
+              "limit": {
+                "@type": "nanocoins",
+                "amount": {
+                  "@type": "var_uint",
+                  "len": "4",
+                  "value": "3287232758"
+                }
+              },
+              "next": {
+                "@type": "nothing_from_maybe"
+              }
+            }
+          },
+          "swap_params": {
+            "@type": "swap_params",
+            "deadline": {
+              "timestamp": "1791304049"
+            },
+            "recipient_addr": {
+              "@type": "addr_none"
+            },
+            "referral_addr": {
+              "@type": "addr_none"
+            },
+            "fulfill_payload": {
+              "@type": "something_from_maybe",
+              "value": "te6ccgEBAQEABgAACC4c+oI="
+            },
+            "reject_payload": {
+              "@type": "something_from_maybe",
+              "value": "te6ccgEBAQEABgAACC4c+oI="
+            }
+          }
+        }
+      }
+    },
+    "out_msgs": 1,
+    "total_fees": "191841"
+  }
+}
