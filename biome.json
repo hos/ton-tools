@@ -6,7 +6,13 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/bench/results", "!**/tests/fixtures/*.json", "!docs", "!**/packages/ton-watch/api"]
+    "includes": [
+      "**",
+      "!**/bench/results",
+      "!**/tests/fixtures/*.json",
+      "!docs",
+      "!**/packages/ton-watch/api"
+    ]
   },
   "formatter": {
     "enabled": true,
