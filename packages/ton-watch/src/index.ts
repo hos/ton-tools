@@ -1,34 +1,24 @@
-export { analyzeChain, validatePage } from "./chain";
-export {
-  Consumer,
-  type ConsumerStatus,
-  type HandlerContext,
-  type ProcessOptions,
-  type TxHandler,
-} from "./consumer";
-export { classifyError, type ErrorKind, SourceError } from "./errors";
-export type { HistoryOptions, HistorySource } from "./history";
-export { type AddressStatus, type DetectMode, Indexer, type IndexerOptions } from "./indexer";
-export { consoleLogger, type Logger, type LogLevel, silentLogger } from "./logger";
-export { Metrics } from "./metrics";
-export { LiteSource, type LiteSourceOptions } from "./source/lite-source";
-export {
-  type PoolMember,
-  ServerPool,
-  type ServerPoolOptions,
-  type ServerStats,
-} from "./source/pool";
-export type { BlockRef, ChainTip, ShardTop, TxSource } from "./source/source";
-export { MemoryStore } from "./stores/memory-store";
-export {
-  type PgDatabase,
-  type PgQueryable,
-  PgStore,
-  type PgStoreOptions,
-  poolDatabase,
-} from "./stores/pg/pg-store";
-export type { AddAddressOptions as StoreAddAddressOptions, Store } from "./stores/store";
-export { recordFromCell } from "./tx-cell";
+/**
+ * ton-watch: an embeddable, ordered transaction indexer for a set of TON addresses.
+ *
+ * Start with `TonWatch`; the building blocks (`Indexer`, `Consumer`, stores and
+ * sources) are exported for custom setups. The toncenter history plug-in lives in
+ * the separate `ton-watch/toncenter` entry point.
+ *
+ * @module
+ */
+
+export { Consumer, type ConsumerDeps } from "./consumer/consumer";
+export type {
+  ConsumerStatus,
+  ConsumerWakeEvents,
+  HandlerContext,
+  ProcessOptions,
+  TxHandler,
+} from "./consumer/types";
+export { analyzeChain, type ChainAnalysis, validatePage } from "./core/chain";
+export { classifyError, type ErrorKind, SourceError } from "./core/errors";
+export { recordFromCell } from "./core/transaction";
 export {
   type AddressState,
   completeUpTo,
@@ -38,11 +28,34 @@ export {
   type TxRecord,
   toIndexedTx,
   txIdEquals,
-} from "./types";
+} from "./core/types";
+export type { IndexerEventMap } from "./indexer/events";
+export { Indexer } from "./indexer/indexer";
+export type { DetectMode, IndexerOptions, SplitOptions } from "./indexer/options";
+export type { AddressStatus } from "./indexer/status";
+export { Metrics } from "./metrics/metrics";
+export type { HistoryOptions, HistorySource } from "./source/history";
+export { LiteSource, type LiteSourceOptions } from "./source/liteserver/lite-source";
+export {
+  type PoolMember,
+  ServerPool,
+  type ServerPoolOptions,
+  type ServerStats,
+} from "./source/liteserver/server-pool";
+export type { BlockRef, ChainTip, ShardTop, TxSource } from "./source/source";
+export { MemoryStore } from "./stores/memory/memory-store";
+export { type PgDatabase, type PgQueryable, poolDatabase } from "./stores/pg/database";
+export { PgStore, type PgStoreOptions } from "./stores/pg/pg-store";
+export type {
+  AddAddressOptions as StoreAddAddressOptions,
+  Store,
+  StoreTransaction,
+} from "./stores/store";
 export {
   type AddAddressOptions,
   type Health,
   TonWatch,
   type TonWatchOptions,
   toRaw,
-} from "./watch";
+} from "./ton-watch";
+export { consoleLogger, type Logger, type LogLevel, silentLogger } from "./util/logger";

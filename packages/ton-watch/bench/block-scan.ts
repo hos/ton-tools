@@ -11,9 +11,9 @@
 import { Address, Cell } from "@ton/core";
 import { Functions, type liteServer_allShardsInfo } from "ton-lite-client/dist/schema";
 
-import { Metrics } from "../src/metrics";
-import { LiteSource } from "../src/source/lite-source";
-import { parseShardTops } from "../src/source/shards";
+import { Metrics } from "../src/metrics/metrics";
+import { LiteSource } from "../src/source/liteserver/lite-source";
+import { parseShardTops } from "../src/source/liteserver/shards";
 import { arg, fmt, loadResult, saveResult, toncenter } from "./lib";
 
 const sizes = arg("sizes", "10,1000")!.split(",").map(Number);

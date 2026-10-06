@@ -1,15 +1,19 @@
-import type { Metrics } from "../metrics";
-import type { TxId, TxRecord } from "../types";
+import type { TxId, TxRecord } from "../core/types";
+import type { Metrics } from "../metrics/metrics";
 
+/** Full identifier of a block. */
 export interface BlockRef {
   workchain: number;
+  /** Shard id as a signed 64-bit decimal string. */
   shard: string;
   seqno: number;
   rootHash: Buffer;
   fileHash: Buffer;
 }
 
+/** The newest block of one shard as of a masterchain block. */
 export interface ShardTop extends BlockRef {
+  /** Logical time at the end of the block. */
   endLt: bigint;
 }
 
@@ -30,7 +34,7 @@ export interface ChainTip {
 
 /**
  * Where transactions come from. `LiteSource` is the liteserver implementation; tests
- * use a fake. Every method may throw a `SourceError` (see errors.ts).
+ * use a fake. Every method may throw a `SourceError`.
  */
 export interface TxSource {
   getTip(): Promise<ChainTip>;
@@ -63,7 +67,9 @@ export interface TxSource {
    */
   findTxNear?(address: string, lt: bigint, hint?: { ltPerTx?: number }): Promise<TxId | null>;
 
+  /** Largest `count` that `getTransactions` honors. */
   readonly maxPageSize: number;
+  /** When set, the indexer records into the same registry. */
   readonly metrics?: Metrics;
   close?(): Promise<void>;
 }

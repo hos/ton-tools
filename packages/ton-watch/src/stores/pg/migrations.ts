@@ -1,9 +1,18 @@
+/** Replaced with the quoted schema name in every statement. */
+export const SCHEMA_PLACEHOLDER = "$S";
+
+export interface Migration {
+  version: number;
+  name: string;
+  /** One statement per string. */
+  up: string[];
+}
+
 /**
  * Schema migrations, applied in order and recorded in `<schema>.schema_migrations`.
- * Append new ones; never edit an applied migration. `$S` is replaced with the
- * quoted schema name. One statement per string.
+ * Append new ones; never edit an applied migration.
  */
-export const migrations: { version: number; name: string; up: string[] }[] = [
+export const migrations: Migration[] = [
   {
     version: 1,
     name: "initial",

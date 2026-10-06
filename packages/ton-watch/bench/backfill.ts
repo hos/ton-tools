@@ -5,10 +5,10 @@
  *
  *   bun run bench/backfill.ts [--sizes 1,10,100,1000] [--hours 2] [--concurrency 1,32] [--label before]
  */
-import { Indexer } from "../src/indexer";
-import { Metrics } from "../src/metrics";
-import { LiteSource } from "../src/source/lite-source";
-import { MemoryStore } from "../src/stores/memory-store";
+import { Indexer } from "../src/indexer/indexer";
+import { Metrics } from "../src/metrics/metrics";
+import { LiteSource } from "../src/source/liteserver/lite-source";
+import { MemoryStore } from "../src/stores/memory/memory-store";
 import { arg, fmt, loadResult, ltAtTime, saveResult } from "./lib";
 
 const sizes = arg("sizes", "1,10,100,1000")!.split(",").map(Number);
@@ -22,7 +22,7 @@ const historyMode = (historyArg?.split(":")[1] ?? "boost") as "fallback" | "boos
 const makeHistory = async () =>
   historyArg?.startsWith("toncenter")
     ? {
-        source: new (await import("../src/toncenter")).ToncenterHistory({
+        source: new (await import("../src/plugins/toncenter")).ToncenterHistory({
           apiKey: process.env.TONCENTER_API_KEY,
           pageSize: 1000,
         }),

@@ -5,10 +5,11 @@
  *
  *   bun run bench/idle.ts [--n 1000] [--minutes 5] [--modes poll,blocks]
  */
-import { type DetectMode, Indexer } from "../src/indexer";
-import { Metrics } from "../src/metrics";
-import { LiteSource } from "../src/source/lite-source";
-import { MemoryStore } from "../src/stores/memory-store";
+import { Indexer } from "../src/indexer/indexer";
+import type { DetectMode } from "../src/indexer/options";
+import { Metrics } from "../src/metrics/metrics";
+import { LiteSource } from "../src/source/liteserver/lite-source";
+import { MemoryStore } from "../src/stores/memory/memory-store";
 import { arg, fmt, loadResult, saveResult } from "./lib";
 
 const n = Number(arg("n", "1000"));

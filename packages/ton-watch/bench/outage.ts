@@ -9,10 +9,10 @@
  */
 import { Pool } from "pg";
 
-import { Indexer } from "../src/indexer";
-import { Metrics } from "../src/metrics";
-import { LiteSource } from "../src/source/lite-source";
-import { MemoryStore } from "../src/stores/memory-store";
+import { Indexer } from "../src/indexer/indexer";
+import { Metrics } from "../src/metrics/metrics";
+import { LiteSource } from "../src/source/liteserver/lite-source";
+import { MemoryStore } from "../src/stores/memory/memory-store";
 import { PgStore } from "../src/stores/pg/pg-store";
 import type { Store } from "../src/stores/store";
 import { arg, fmt, loadResult, ltAtTime, saveResult } from "./lib";
@@ -27,7 +27,7 @@ const historyMode = (historyArg?.split(":")[1] ?? "boost") as "fallback" | "boos
 const makeHistory = async () =>
   historyArg?.startsWith("toncenter")
     ? {
-        source: new (await import("../src/toncenter")).ToncenterHistory({
+        source: new (await import("../src/plugins/toncenter")).ToncenterHistory({
           apiKey: process.env.TONCENTER_API_KEY,
           pageSize: 1000,
         }),

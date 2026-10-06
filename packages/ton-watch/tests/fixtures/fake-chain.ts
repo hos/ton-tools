@@ -1,9 +1,9 @@
 import { beginCell, Dictionary, storeTransaction, type Transaction } from "@ton/core";
 
-import { SourceError } from "../../src/errors";
-import { Metrics } from "../../src/metrics";
+import { SourceError } from "../../src/core/errors";
+import type { TxId, TxRecord } from "../../src/core/types";
+import { Metrics } from "../../src/metrics/metrics";
 import type { ChainTip, TxSource } from "../../src/source/source";
-import type { TxId, TxRecord } from "../../src/types";
 
 /** Deterministic PRNG (mulberry32). */
 export function rng(seed: number) {

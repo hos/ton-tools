@@ -8,12 +8,12 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { analyzeChain } from "../src/chain";
-import { Indexer } from "../src/indexer";
-import { LiteSource } from "../src/source/lite-source";
-import { MemoryStore } from "../src/stores/memory-store";
-import { ToncenterHistory } from "../src/toncenter";
-import { toRaw } from "../src/watch";
+import { analyzeChain } from "../src/core/chain";
+import { Indexer } from "../src/indexer/indexer";
+import { ToncenterHistory } from "../src/plugins/toncenter";
+import { LiteSource } from "../src/source/liteserver/lite-source";
+import { MemoryStore } from "../src/stores/memory/memory-store";
+import { toRaw } from "../src/ton-watch";
 
 const LIVE = process.env.LIVE === "1";
 // STON.fi v1 router: thousands of transactions a day.

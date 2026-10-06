@@ -48,7 +48,7 @@ export function saveResult(name: string, data: unknown) {
   const file = join(RESULTS_DIR, `${name}.json`);
   writeFileSync(
     file,
-    JSON.stringify(data, (_, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n",
+    `${JSON.stringify(data, (_, v) => (typeof v === "bigint" ? v.toString() : v), 2)}\n`,
   );
   console.log(`saved ${file}`);
 }

@@ -1,11 +1,21 @@
-import type { AddressState, Gap, TxId, TxRecord } from "../types";
+import type { AddressState, Gap, TxId, TxRecord } from "../core/types";
 
+/** How a store starts tracking an address. */
 export interface AddAddressOptions {
   /** Transactions with `lt <= startLt` are out of scope. 0 = full history. */
   startLt: bigint;
   /** Known-complete chain lt at the time of adding (e.g. when starting "from now"). */
   syncedLt?: bigint;
+  /** Chain unix time of `syncedLt`. */
   syncedUtime?: number;
+}
+
+/** Handed to the callback of `Store.transaction`. */
+export interface StoreTransaction {
+  /** The same store, bound to the open database transaction. */
+  store: Store;
+  /** The store's native transaction handle (for `PgStore`, the `pg`/PGlite client). */
+  db: unknown;
 }
 
 /**
@@ -57,5 +67,5 @@ export interface Store {
    * Optional: runs `fn` atomically. Consumers use it to commit the handler's own
    * writes (through `db`) together with the cursor, giving exactly-once effects.
    */
-  transaction?<T>(fn: (tx: { store: Store; db: unknown }) => Promise<T>): Promise<T>;
+  transaction?<T>(fn: (tx: StoreTransaction) => Promise<T>): Promise<T>;
 }
