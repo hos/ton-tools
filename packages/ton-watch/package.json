@@ -47,7 +47,9 @@
   },
   "dependencies": {
     "@ton/ls": "workspace:*",
-    "ton-lite-client": "^3.1.1"
+    "adnl": "^1.0.3",
+    "ton-lite-client": "^3.1.1",
+    "ton-tl": "^1.0.1"
   },
   "peerDependencies": {
     "@ton/core": "^0.63.1",

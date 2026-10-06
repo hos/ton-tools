@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Address } from "@ton/core";
 import type { LsConfig } from "@ton/ls";
-import { type LiteClient, LiteSingleEngine } from "ton-lite-client";
+import type { LiteClient } from "ton-lite-client";
 import type {
   liteServer_blockHeader,
   liteServer_blockTransactions,
@@ -14,6 +14,7 @@ import { Functions } from "ton-lite-client/dist/schema.js";
 import { SourceError } from "../../src/core/errors";
 import type { TxId } from "../../src/core/types";
 import { Metrics } from "../../src/metrics/metrics";
+import { LiteConnection } from "../../src/source/liteserver/lite-engine";
 import {
   LiteSource,
   type LiteSourceOptions,
@@ -915,22 +916,22 @@ describe("close", () => {
 
 describe("connect", () => {
   // No sockets: engines are real objects whose connection is stubbed out.
-  let ready: (engine: LiteSingleEngine) => boolean;
+  let ready: (engine: LiteConnection) => boolean;
   const spies: { mockRestore(): void }[] = [];
 
   beforeEach(() => {
     ready = () => true;
     spies.push(
       spyOn(
-        LiteSingleEngine.prototype as unknown as { connect(): void },
+        LiteConnection.prototype as unknown as { connect(): void },
         "connect",
       ).mockImplementation(() => {}),
-      spyOn(LiteSingleEngine.prototype, "isReady").mockImplementation(function (
-        this: LiteSingleEngine,
+      spyOn(LiteConnection.prototype, "isReady").mockImplementation(function (
+        this: LiteConnection,
       ) {
         return ready(this);
       }),
-      spyOn(LiteSingleEngine.prototype, "close").mockImplementation(() => {}),
+      spyOn(LiteConnection.prototype, "close").mockImplementation(() => {}),
     );
   });
   afterEach(() => {
@@ -967,8 +968,7 @@ describe("connect", () => {
     ]);
     expect(source.metrics).toBe(metrics);
     expect(serverPoolOf(source).metrics).toBe(metrics);
-    const engine = (serverPoolOf(source).members[2]!.client as LiteClient)
-      .engine as LiteSingleEngine;
+    const engine = (serverPoolOf(source).members[2]!.client as LiteClient).engine as LiteConnection;
     expect(engine.host).toBe("tcp://192.168.0.1:1");
     expect(engine.publicKey).toEqual(Buffer.alloc(32, 1));
     // The pool sees the engine's connection state.
@@ -980,7 +980,7 @@ describe("connect", () => {
     ).toEqual([true, true, false]);
     expect(lines).toEqual(["liteservers: 3/3 connected (2 archival configured)"]);
     await source.close();
-    expect(LiteSingleEngine.prototype.close).toHaveBeenCalledTimes(3);
+    expect(LiteConnection.prototype.close).toHaveBeenCalledTimes(3);
   });
 
   test("defaults to the mainnet global config", async () => {
@@ -1032,6 +1032,6 @@ describe("connect", () => {
     }).catch((e) => e);
     expect(err).toBeInstanceOf(SourceError);
     expect(err.kind).toBe("network");
-    expect(LiteSingleEngine.prototype.close).toHaveBeenCalledTimes(2);
+    expect(LiteConnection.prototype.close).toHaveBeenCalledTimes(2);
   });
 });

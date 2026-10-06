@@ -1,6 +1,6 @@
 import { Address, Cell } from "@ton/core";
 import { getServers, type LsConfig, type ServerDefinition } from "@ton/ls";
-import { LiteClient, LiteSingleEngine } from "ton-lite-client";
+import { LiteClient } from "ton-lite-client";
 import type {
   liteServer_accountState,
   liteServer_allShardsInfo,
@@ -19,6 +19,7 @@ import { sleep } from "../../util/async";
 import { silentLogger } from "../../util/logger";
 import type { BlockRef, ChainTip, ShardTop, TxSource } from "../source";
 import { lastTxFromStateProof } from "./account-proof";
+import { LiteConnection } from "./lite-engine";
 import {
   type PoolMember,
   ServerPool,
@@ -90,7 +91,7 @@ export class LiteSource implements TxSource {
   readonly maxPageSize: number = LITESERVER_MAX_PAGE_SIZE;
   readonly metrics: Metrics;
   private readonly pool: ServerPool<LiteClient>;
-  private readonly engines: LiteSingleEngine[];
+  private readonly engines: LiteConnection[];
   private readonly maxBlocksPerTick: number;
   private readonly maxProbeBlocks: number;
   private lastTip: ChainTip | null = null;
@@ -98,7 +99,7 @@ export class LiteSource implements TxSource {
 
   private constructor(
     members: PoolMember<LiteClient>[],
-    engines: LiteSingleEngine[],
+    engines: LiteConnection[],
     options: LiteSourceOptions,
   ) {
     this.metrics = options.metrics ?? new Metrics();
@@ -115,19 +116,15 @@ export class LiteSource implements TxSource {
     const primary = await getServers(options.servers ?? "mainnet");
     const archive = options.archiveServers ? await getServers(options.archiveServers) : [];
 
-    const engines: LiteSingleEngine[] = [];
+    const engines: LiteConnection[] = [];
     const members: PoolMember<LiteClient>[] = [];
     const seenHosts = new Set<string>();
     const addServer = (config: LsConfig, isArchive: boolean) => {
       const host = `tcp://${formatIpv4(config.ip)}:${config.port}`;
       if (seenHosts.has(host)) return;
       seenHosts.add(host);
-      const engine = new LiteSingleEngine({
-        host,
-        publicKey: Buffer.from(config.id.key, "base64"),
-      });
       // Connection errors surface as failed calls; the engine reconnects by itself.
-      engine.on("error", () => {});
+      const engine = new LiteConnection({ host, publicKey: Buffer.from(config.id.key, "base64") });
       engines.push(engine);
       members.push({
         id: host,

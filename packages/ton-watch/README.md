@@ -46,7 +46,7 @@ bunx jsr add @ton/watch
 
 `jsr add` maps `@ton/watch` to JSR's npm mirror (`npm:@jsr/ton__watch`, with an
 `.npmrc` pointing `@jsr` at `npm.jsr.io`), so imports are the plain package
-name. `@ton/core` (^0.63), `pg`, `ton-lite-client` and
+name. `@ton/core` (^0.63), `pg`, `ton-lite-client` (with `adnl` and `ton-tl`) and
 [`@ton/ls`](https://jsr.io/@ton/ls) come along as regular dependencies (JSR has
 no peer or optional ones); if you import `@ton/core` yourself, add it in a
 compatible range so there is one copy.

@@ -112,8 +112,15 @@ export class WalkScheduler {
   /** Resolves when no page is in flight, or after `timeoutMs` if given. */
   whenIdle(timeoutMs?: number): Promise<void> {
     return new Promise((resolve) => {
-      this.idleWaiters.push(resolve);
-      if (timeoutMs !== undefined) setTimeout(resolve, timeoutMs);
+      if (timeoutMs === undefined) {
+        this.idleWaiters.push(resolve);
+        return;
+      }
+      const timer = setTimeout(resolve, timeoutMs);
+      this.idleWaiters.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
     });
   }
 
