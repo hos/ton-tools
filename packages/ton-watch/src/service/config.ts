@@ -34,7 +34,12 @@ const DEFAULT_CONCURRENCY = 16;
 const DETECT_MODES: readonly DetectMode[] = ["poll", "blocks", "auto"];
 const HISTORY_MODES: readonly ToncenterConfig["mode"][] = ["fallback", "boost"];
 
-export function configFromEnv(env: Env): ServiceConfig {
+/** An empty variable (`TON_WATCH_LOG=` in compose/k8s) means "unset", not an invalid value. */
+const withoutEmpty = (env: Env): Env =>
+  Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ""));
+
+export function configFromEnv(rawEnv: Env): ServiceConfig {
+  const env = withoutEmpty(rawEnv);
   if (!env.DATABASE_URL) throw new Error("DATABASE_URL is required");
   return {
     databaseUrl: env.DATABASE_URL,
@@ -62,7 +67,7 @@ export function configFromEnv(env: Env): ServiceConfig {
 }
 
 export function logLevelFromEnv(env: Env): LogLevel {
-  const level = env.TON_WATCH_LOG ?? "info";
+  const level = env.TON_WATCH_LOG || "info";
   if (!isLogLevel(level)) throw new Error(`invalid TON_WATCH_LOG: ${level}`);
   return level;
 }
