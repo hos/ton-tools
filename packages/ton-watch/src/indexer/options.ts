@@ -3,6 +3,7 @@ import type { HistoryOptions } from "../source/history";
 import type { TxSource } from "../source/source";
 import type { Store } from "../stores/store";
 import type { Logger } from "../util/logger";
+import { assertPositiveInteger } from "../util/validate";
 
 /**
  * How to find addresses with new transactions:
@@ -94,8 +95,9 @@ export const DEFAULT_SPLIT: Required<SplitOptions> = {
   maxParts: 32,
 };
 
+/** Tuning values with defaults applied. Throws on a `concurrency` that would start no work. */
 export function resolveSettings(options: IndexerOptions): IndexerSettings {
-  return {
+  const settings: IndexerSettings = {
     concurrency: options.concurrency ?? DEFAULT_SETTINGS.concurrency,
     tickMs: options.tickMs ?? DEFAULT_SETTINGS.tickMs,
     detect: options.detect ?? DEFAULT_SETTINGS.detect,
@@ -108,6 +110,8 @@ export function resolveSettings(options: IndexerOptions): IndexerSettings {
     archiveRetryMs: options.archiveRetryMs ?? DEFAULT_SETTINGS.archiveRetryMs,
     addressMetrics: options.addressMetrics ?? DEFAULT_SETTINGS.addressMetrics,
   };
+  assertPositiveInteger("concurrency", settings.concurrency);
+  return settings;
 }
 
 /** Split settings, or null when splitting is off or the source cannot find split points. */

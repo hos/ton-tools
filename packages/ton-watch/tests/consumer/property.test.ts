@@ -473,17 +473,12 @@ describe("consumer property: end to end with a running indexer", () => {
 });
 
 /**
- * BUG: in "address" order, a consumer's starting point is resolved lazily, the
- * first time the address has a frontier (`Consumer.deliverPerAddress` skips
- * addresses without one before `cursorFor` runs). With `from: "now"`, a consumer
- * started before an address's first indexed transaction therefore resolves "now"
- * to that transaction and never delivers it — although it was indexed after the
- * consumer started (src/consumer/consumer.ts, `initialCursor` / the `ready` filter
- * in `deliverPerAddress`). Global order resolves at once (to startLt) and does
- * deliver it, so the two orders disagree.
+ * In "address" order, `from: "now"` is resolved the first round the consumer sees
+ * an address, also before anything is indexed for it, so the first indexed
+ * transactions are delivered — as in global order.
  */
 describe("consumer: from 'now' on an address with nothing indexed yet", () => {
-  test.failing("delivers transactions indexed after the consumer started", async () => {
+  test("delivers transactions indexed after the consumer started", async () => {
     const chain = new FakeChain();
     const a = fakeAddress(1);
     chain.grow([a], 3);
@@ -549,17 +544,12 @@ describe("consumer property: transient store errors in a running global consumer
 });
 
 /**
- * BUG: in "address" order, a store error in one lane (here a failed `read`) rejects
- * `runOnce()` through `Promise.all` in `Consumer.deliverPerAddress`
- * (src/consumer/consumer.ts) while the other workers of that round keep delivering.
- * `runLoop` catches the error and starts the next round after `pollMs`, which picks
- * up the same addresses from their not-yet-advanced `lane.cursor`, so two rounds
- * deliver one address concurrently: the same transactions are handled twice (and a
- * stale round can also write an older cursor after a newer one). Expected: each
- * transaction exactly once.
+ * In "address" order, a store error in one lane (here a failed `read`) fails the
+ * round only after the other lanes' workers have stopped, so the next round never
+ * delivers an address concurrently with the previous one.
  */
 describe("consumer: a store error in one lane of a running per-address consumer", () => {
-  test.failing("does not deliver another lane's transactions twice", async () => {
+  test("does not deliver another lane's transactions twice", async () => {
     const chain = new FakeChain();
     const [a, b] = [fakeAddress(1), fakeAddress(2)];
     chain.grow([a, b], 10);

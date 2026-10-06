@@ -33,6 +33,8 @@ const DEFAULT_PORT = 9464;
 const DEFAULT_CONCURRENCY = 16;
 const DETECT_MODES: readonly DetectMode[] = ["poll", "blocks", "auto"];
 const HISTORY_MODES: readonly ToncenterConfig["mode"][] = ["fallback", "boost"];
+const HISTORY_SOURCES = ["toncenter"] as const;
+const MAX_PORT = 65_535;
 
 /** An empty variable (`TON_WATCH_LOG=` in compose/k8s) means "unset", not an invalid value. */
 const withoutEmpty = (env: Env): Env =>
@@ -47,22 +49,28 @@ export function configFromEnv(rawEnv: Env): ServiceConfig {
     network: (env.TON_NETWORK ?? env.TON_NETWORK_CONFIG_URL ?? "mainnet") as ServerDefinition,
     archiveNetwork: env.TON_ARCHIVE_CONFIG as ServerDefinition | undefined,
     addresses: parseAddressList(env.TON_WATCH_ADDRESSES ?? ""),
-    port: Number(env.TON_WATCH_PORT ?? DEFAULT_PORT),
-    concurrency: Number(env.TON_WATCH_CONCURRENCY ?? DEFAULT_CONCURRENCY),
+    port: integerInRange("TON_WATCH_PORT", env.TON_WATCH_PORT, DEFAULT_PORT, 0, MAX_PORT),
+    concurrency: integerInRange(
+      "TON_WATCH_CONCURRENCY",
+      env.TON_WATCH_CONCURRENCY,
+      DEFAULT_CONCURRENCY,
+      1,
+      Number.MAX_SAFE_INTEGER,
+    ),
     detect: oneOf("TON_WATCH_DETECT", env.TON_WATCH_DETECT ?? "auto", DETECT_MODES),
     logLevel: logLevelFromEnv(env),
-    history:
-      env.TON_WATCH_HISTORY === "toncenter"
-        ? {
-            mode: oneOf(
-              "TON_WATCH_HISTORY_MODE",
-              env.TON_WATCH_HISTORY_MODE ?? "fallback",
-              HISTORY_MODES,
-            ),
-            apiKey: env.TONCENTER_API_KEY,
-            endpoint: env.TONCENTER_ENDPOINT,
-          }
-        : null,
+    history: historyFromEnv(env),
+  };
+}
+
+/** The toncenter plug-in settings when `TON_WATCH_HISTORY=toncenter`, else null. */
+function historyFromEnv(env: Env): ToncenterConfig | null {
+  if (env.TON_WATCH_HISTORY === undefined) return null;
+  oneOf("TON_WATCH_HISTORY", env.TON_WATCH_HISTORY, HISTORY_SOURCES);
+  return {
+    mode: oneOf("TON_WATCH_HISTORY_MODE", env.TON_WATCH_HISTORY_MODE ?? "fallback", HISTORY_MODES),
+    apiKey: env.TONCENTER_API_KEY,
+    endpoint: env.TONCENTER_ENDPOINT,
   };
 }
 
@@ -90,6 +98,22 @@ function parseAddressList(list: string): ServiceConfig["addresses"] {
       const [address = "", from] = entry.split("@");
       return { address, from: parseFrom(from) };
     });
+}
+
+/** A decimal integer in `[min, max]`, or `fallback` when the variable is unset. */
+function integerInRange(
+  name: string,
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (value === undefined) return fallback;
+  const parsed = /^\d+$/.test(value) ? Number(value) : Number.NaN;
+  if (!(parsed >= min && parsed <= max)) {
+    throw new Error(`invalid ${name}: ${value} (an integer from ${min} to ${max})`);
+  }
+  return parsed;
 }
 
 function oneOf<T extends string>(name: string, value: string, allowed: readonly T[]): T {

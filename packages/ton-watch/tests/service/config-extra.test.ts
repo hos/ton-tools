@@ -91,12 +91,7 @@ describe("configFromEnv values", () => {
     expect(configFromEnv({ ...base, TON_WATCH_PORT: "0" }).port).toBe(0);
   });
 
-  // BUG: TON_WATCH_PORT and TON_WATCH_CONCURRENCY go through bare `Number()` with no
-  // validation. "abc" gives NaN: a NaN port silently disables the HTTP server
-  // (`config.port > 0` is false) and a NaN/0/negative concurrency makes the walk
-  // scheduler (`inFlight < concurrency`) and `mapConcurrent` never start any work,
-  // so the service runs but indexes nothing.
-  test.failing("non-numeric or out-of-range numbers are rejected", () => {
+  test("non-numeric or out-of-range numbers are rejected", () => {
     expect(() => configFromEnv({ ...base, TON_WATCH_PORT: "abc" })).toThrow(/TON_WATCH_PORT/);
     expect(() => configFromEnv({ ...base, TON_WATCH_PORT: "70000" })).toThrow(/TON_WATCH_PORT/);
     expect(() => configFromEnv({ ...base, TON_WATCH_CONCURRENCY: "abc" })).toThrow(
@@ -175,6 +170,12 @@ describe("toncenter history config", () => {
       configFromEnv({ ...base, TON_WATCH_HISTORY: "toncenter", TON_WATCH_HISTORY_MODE: "turbo" }),
     ).toThrow("invalid TON_WATCH_HISTORY_MODE: turbo (fallback | boost)");
     expect(configFromEnv({ ...base, TON_WATCH_HISTORY_MODE: "turbo" }).history).toBeNull();
+  });
+
+  test("an unknown history source is rejected", () => {
+    expect(() => configFromEnv({ ...base, TON_WATCH_HISTORY: "tonapi" })).toThrow(
+      "invalid TON_WATCH_HISTORY: tonapi (toncenter)",
+    );
   });
 });
 

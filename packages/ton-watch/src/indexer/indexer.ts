@@ -54,6 +54,8 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
   private running = false;
   private tickTimer: ReturnType<typeof setTimeout> | null = null;
   private currentTick: Promise<void> | null = null;
+  /** Incremented by every `start()`, so a loop outlived by a stop/start ends itself. */
+  private loopGeneration = 0;
 
   constructor(options: IndexerOptions) {
     super();
@@ -109,23 +111,33 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.scheduler.resume();
+    const generation = ++this.loopGeneration;
+    const isCurrent = () => this.running && this.loopGeneration === generation;
     const loop = async () => {
-      if (!this.running) return;
-      this.currentTick = this.tick().catch((error) => {
+      // A tick of a loop stopped just before this start() may still be running.
+      if (this.currentTick) await this.currentTick;
+      if (!isCurrent()) return;
+      const tick = this.tick().catch((error) => {
         this.metrics.error(classifyError(error), "tick");
         this.logger.warn("tick failed:", errorMessage(error));
       });
-      await this.currentTick;
-      this.currentTick = null;
-      if (this.running) this.tickTimer = setTimeout(loop, this.settings.tickMs);
+      this.currentTick = tick;
+      await tick;
+      if (this.currentTick === tick) this.currentTick = null;
+      if (isCurrent()) this.tickTimer = setTimeout(loop, this.settings.tickMs);
     };
     void loop();
   }
 
-  /** Stops ticking and waits for pages in flight to finish. */
+  /**
+   * Stops ticking and starting pages, then waits for the tick and the pages in
+   * flight to finish. Remaining work stays scheduled for the next `start()`.
+   */
   async stop(): Promise<void> {
     this.running = false;
     if (this.tickTimer) clearTimeout(this.tickTimer);
+    this.tickTimer = null;
     this.scheduler.stop();
     await this.currentTick;
     while (this.scheduler.pagesInFlight > 0) await this.scheduler.whenIdle();
@@ -158,6 +170,7 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
 
   /** Ticks and drains until every address is complete up to the tip (or `maxRounds`). */
   async syncOnce(maxRounds = DEFAULT_SYNC_ROUNDS): Promise<void> {
+    this.scheduler.resume();
     for (let round = 0; round < maxRounds; round++) {
       try {
         await this.tick();
@@ -185,7 +198,7 @@ export class Indexer extends EventEmitter<IndexerEventMap> {
   private async refreshAddresses(): Promise<void> {
     const dropped = this.addresses.sync(await this.store.listAddresses());
     for (const address of dropped) {
-      this.scheduler.dropIdle(address);
+      this.scheduler.dropAddress(address);
       if (this.settings.addressMetrics) this.metrics.clearGauges("ton_watch_address_");
     }
   }

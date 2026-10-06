@@ -28,7 +28,8 @@ export interface WalkRunnerDeps {
 
 /**
  * Runs one page of a walk: fetch, store what is in range, then either move the
- * cursor down, finish the walk, or schedule a retry with backoff.
+ * cursor down, finish the walk, or schedule a retry with backoff. A walk dropped
+ * while its page was in flight is left alone.
  */
 export class WalkRunner {
   constructor(private readonly deps: WalkRunnerDeps) {}
@@ -36,9 +37,11 @@ export class WalkRunner {
   async runPage(walk: Walk): Promise<void> {
     try {
       const page = await this.deps.fetcher.fetch(walk);
+      // Dropped while the page was in flight (its address was removed).
+      if (!this.deps.scheduler.has(walk)) return;
       await this.storePage(walk, page);
     } catch (error) {
-      this.scheduleRetry(walk, error);
+      if (this.deps.scheduler.has(walk)) this.scheduleRetry(walk, error);
     }
   }
 

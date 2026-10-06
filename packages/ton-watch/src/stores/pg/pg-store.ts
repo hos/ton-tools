@@ -15,6 +15,8 @@ export interface PgStoreOptions {
 const DEFAULT_SCHEMA = "ton_watch";
 const DEFAULT_GAP_LIMIT = 100;
 const SCHEMA_NAME = /^[a-z_][a-z0-9_]*$/;
+/** Postgres silently truncates longer identifiers (NAMEDATALEN - 1). */
+const MAX_SCHEMA_LENGTH = 63;
 
 /** `bytea` comes back as a `Buffer` from `pg` and as a `Uint8Array` from PGlite. */
 type Bytes = Uint8Array;
@@ -26,7 +28,7 @@ interface AddressRow {
   frontier_lt: string | null;
   frontier_hash: Bytes | null;
   synced_lt: string;
-  synced_utime: number | null;
+  synced_utime: string | null;
   head_lt: string | null;
   head_hash: Bytes | null;
 }
@@ -48,7 +50,7 @@ interface TransactionRow {
   hash: Bytes;
   prev_lt: string;
   prev_hash: Bytes;
-  utime: number;
+  utime: string;
   boc: Bytes;
 }
 
@@ -67,14 +69,14 @@ function addressStateFrom(row: AddressRow): AddressState {
     head: txIdFrom(row.head_lt, row.head_hash),
     frontier: txIdFrom(row.frontier_lt, row.frontier_hash),
     syncedLt: BigInt(row.synced_lt),
-    syncedUtime: row.synced_utime ?? null,
+    syncedUtime: row.synced_utime === null ? null : Number(row.synced_utime),
   };
 }
 
 /** Address state plus its head: the newest stored transaction. */
 const SELECT_ADDRESS_STATE = `
   select a.address, a.start_lt::text, a.active, a.frontier_lt::text, a.frontier_hash,
-    a.synced_lt::text, a.synced_utime, h.lt::text as head_lt, h.hash as head_hash
+    a.synced_lt::text, a.synced_utime::text, h.lt::text as head_lt, h.hash as head_hash
   from $S.addresses a
   left join lateral (
     select lt, hash from $S.transactions t where t.address_id = a.id order by lt desc limit 1
@@ -99,23 +101,30 @@ export class PgStore implements Store {
   constructor(db: Pool | PgDatabase, options: PgStoreOptions = {}) {
     this.db = "transaction" in db ? db : poolDatabase(db);
     this.schema = options.schema ?? DEFAULT_SCHEMA;
-    if (!SCHEMA_NAME.test(this.schema)) {
-      throw new Error(`invalid schema name: ${this.schema}`);
+    if (!SCHEMA_NAME.test(this.schema) || this.schema.length > MAX_SCHEMA_LENGTH) {
+      throw new Error(
+        `invalid schema name: ${this.schema} (lowercase letters, digits and _, at most ${MAX_SCHEMA_LENGTH})`,
+      );
     }
     this.quotedSchema = `"${this.schema}"`;
     this.onClose = options.onClose;
   }
 
+  /**
+   * Creates the schema and applies pending migrations. Safe to run from several
+   * processes at once: everything happens under one advisory lock, because
+   * `create ... if not exists` alone races on a fresh database.
+   */
   async migrate(): Promise<void> {
-    await this.query(`create schema if not exists $S`);
-    await this.query(`create table if not exists $S.schema_migrations (
-      version integer primary key,
-      name text not null,
-      applied_at timestamptz not null default now()
-    )`);
     await this.db.transaction(async (tx) => {
       const run = <Row>(sql: string, params?: unknown[]) => this.query<Row>(sql, params, tx);
       await run(`select pg_advisory_xact_lock(hashtext($1))`, [`ton_watch:${this.schema}`]);
+      await run(`create schema if not exists $S`);
+      await run(`create table if not exists $S.schema_migrations (
+        version integer primary key,
+        name text not null,
+        applied_at timestamptz not null default now()
+      )`);
       const applied = await run<{ version: number }>(`select version from $S.schema_migrations`);
       const appliedVersions = new Set(applied.map((row) => Number(row.version)));
       for (const migration of migrations) {
@@ -180,7 +189,7 @@ export class PgStore implements Store {
        insert into $S.transactions (address_id, lt, hash, prev_lt, prev_hash, utime, boc)
        select a.id, u.lt, decode(u.hash, 'hex'), u.prev_lt, decode(u.prev_hash, 'hex'), u.utime,
          decode(u.boc, 'hex')
-       from a, unnest($2::bigint[], $3::text[], $4::bigint[], $5::text[], $6::integer[], $7::text[])
+       from a, unnest($2::bigint[], $3::text[], $4::bigint[], $5::text[], $6::bigint[], $7::text[])
          as u(lt, hash, prev_lt, prev_hash, utime, boc)
        where u.lt > a.start_lt
        on conflict do nothing
@@ -257,7 +266,7 @@ export class PgStore implements Store {
 
   async read(address: string, afterLt: bigint, uptoLt: bigint, limit: number): Promise<TxRecord[]> {
     const rows = await this.query<TransactionRow>(
-      `select t.lt::text, t.hash, t.prev_lt::text, t.prev_hash, t.utime, t.boc
+      `select t.lt::text, t.hash, t.prev_lt::text, t.prev_hash, t.utime::text, t.boc
        from $S.transactions t join $S.addresses a on a.id = t.address_id
        where a.address = $1 and t.lt > $2 and t.lt <= $3
        order by t.lt asc

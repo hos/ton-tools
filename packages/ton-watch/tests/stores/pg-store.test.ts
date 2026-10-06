@@ -77,19 +77,13 @@ describe("PgStore construction", () => {
     expect(closed).toBe(1);
   });
 
-  // BUG: SCHEMA_NAME (src/stores/pg/pg-store.ts:16) has no length limit, but Postgres
-  // truncates identifiers to 63 bytes (NAMEDATALEN - 1). Two distinct schema options
-  // that share their first 63 characters therefore silently use the same tables.
-  // Expected: the constructor rejects names over 63 characters (or they stay isolated).
-  // Actual: store B sees store A's address.
-  test.failing("schema names longer than 63 characters do not collide", async () => {
-    const db = shared;
-    const a = new PgStore(db as any, { schema: `${"s".repeat(63)}_a` });
-    const b = new PgStore(db as any, { schema: `${"s".repeat(63)}_b` });
-    await a.migrate();
-    await b.migrate();
-    await a.addAddress(A, { startLt: 0n });
-    expect(await b.listAddresses()).toEqual([]);
+  // Postgres truncates identifiers to 63 bytes, so two longer names sharing their
+  // first 63 characters would silently use the same tables.
+  test("schema names longer than 63 characters are rejected", () => {
+    expect(new PgStore(shared as any, { schema: "s".repeat(63) }).schema).toHaveLength(63);
+    expect(() => new PgStore(shared as any, { schema: `${"s".repeat(63)}_a` })).toThrow(
+      "invalid schema name",
+    );
   });
 });
 
@@ -253,11 +247,7 @@ for (const [name, target] of targets) {
       expect((await store.getAddress(A))?.syncedUtime).toBe(utime);
     });
 
-    // BUG: `transactions.utime` and `addresses.synced_utime` are `integer` (int32) in
-    // src/stores/pg/migrations.ts:26 and :37, but TON block time is uint32. From
-    // 2038-01-19T03:14:08Z (utime 2^31) every write fails with "value out of range for
-    // type integer", while MemoryStore accepts it. Expected: write returns 1.
-    test.failing("utime past 2038 (2^31) can be stored", async () => {
+    test("utime past 2038 (2^31) can be stored", async () => {
       const utime = 2 ** 31;
       expect(await store.write(A, chainOf(A, [100n], utime))).toBe(1);
       expect((await store.read(A, 0n, ALL, 1))[0]!.utime).toBe(utime);

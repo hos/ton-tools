@@ -246,11 +246,7 @@ describe("ton-watch run", () => {
 });
 
 describe("ton-watch startup errors", () => {
-  // BUG: when Postgres is unreachable at `localhost`, pg rejects with an
-  // AggregateError (one ECONNREFUSED per resolved address) whose `message` is "".
-  // `errorMessage()` (src/core/errors.ts), used by bin/ton-watch.ts, then prints
-  // just "[ton-watch] " and the operator gets no hint of what failed.
-  test.failing("an unreachable database produces a readable message", async () => {
+  test("an unreachable database produces a readable message", async () => {
     poolSpy.mockRestore();
     const error = await main(["list"], env({ DATABASE_URL: "postgres://u@localhost:1/db" })).then(
       () => null,

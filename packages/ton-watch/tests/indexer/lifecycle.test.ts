@@ -137,12 +137,7 @@ describe("Indexer start/stop", () => {
     expect((await s.store.read(A, 0n, 1n << 62n, 10_000)).length).toBeGreaterThan(0);
   });
 
-  // BUG: Indexer.stop() (src/indexer/indexer.ts:126-132) only clears the scheduler's
-  // wake timer; each page that finishes still calls `WalkScheduler.pump()`
-  // (walk-scheduler.ts:115-119), which starts the walk's next page. `stop()` loops
-  // while `pagesInFlight > 0`, so it does not return until the whole backlog has
-  // been fetched: here all 188 pages of a 3000-tx backfill instead of the 1-2 in flight.
-  test.failing("stop() does not start new pages, it only waits for the ones in flight", async () => {
+  test("stop() does not start new pages, it only waits for the ones in flight", async () => {
     const s = await setup(3_000, { faults: { latencyMs: [2, 2] }, indexer: { concurrency: 2 } });
     s.indexer.start();
     await waitFor(() => s.pages() >= 3);
@@ -151,11 +146,7 @@ describe("Indexer start/stop", () => {
     expect(s.pages() - atStop).toBeLessThanOrEqual(2);
   });
 
-  // BUG: a page that fails while stop() is waiting schedules a retry, and the
-  // scheduler's `pump()` after it re-arms the wake timer (walk-scheduler.ts:122,155)
-  // that `stop()` had just cleared. After stop() resolved, the timer fires and the
-  // stopped indexer fetches again.
-  test.failing("a stopped indexer does not retry failed pages", async () => {
+  test("a stopped indexer does not retry failed pages", async () => {
     const s = await setup(100, { indexer: { retryMinMs: 20, retryMaxMs: 20 } });
     let release!: () => void;
     const gate = new Promise<void>((r) => {
@@ -176,12 +167,7 @@ describe("Indexer start/stop", () => {
     expect(s.pages()).toBe(atStop);
   });
 
-  // BUG: start() right after an un-awaited stop() runs a second tick loop next to
-  // the first (indexer.ts:109-123): `running` is true again, so the new loop ticks
-  // while the old tick is still in flight, and the old loop, once its tick ends,
-  // sees `running` and re-arms its own timer (indexer.ts:120). `tickTimer` only
-  // remembers one of the two timers. Seen here as two concurrent getTip calls.
-  test.failing("stop() then start() without awaiting never runs two ticks at once", async () => {
+  test("stop() then start() without awaiting never runs two ticks at once", async () => {
     const s = await setup(0, { faults: { latencyMs: [5, 5] }, indexer: { tickMs: 20 } });
     let running = 0;
     let maxRunning = 0;
@@ -236,12 +222,7 @@ describe("Indexer address set changes while running", () => {
     expect(polled).not.toContain(B);
   });
 
-  // BUG: removing an address only drops its walks that are not fetching at that
-  // moment (`WalkScheduler.dropIdle`, walk-scheduler.ts:81-85, called once from
-  // indexer.ts:188). The walk whose page is in flight survives, and since the
-  // address is never revisited, that walk keeps paging until the whole backfill of
-  // the removed address is done (and keeps `drain()`/`stop()` waiting on it).
-  test.failing("removing an address mid-backfill stops fetching its history", async () => {
+  test("removing an address mid-backfill stops fetching its history", async () => {
     const s = await setup(3_000, { faults: { latencyMs: [2, 2] }, indexer: { concurrency: 1 } });
     s.indexer.start();
     await waitFor(() => s.pages() >= 3);

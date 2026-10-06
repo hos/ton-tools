@@ -47,7 +47,22 @@ export function classifyError(error: unknown): ErrorKind {
   return "unknown";
 }
 
-/** The message of anything thrown: `Error`s, plain objects with a `message`, or other values. */
+/**
+ * The message of anything thrown: `Error`s, plain objects with a `message`, or other
+ * values. An empty message falls back to the inner errors of an `AggregateError`
+ * (what `pg` throws when every address of a host refuses), then to the error `code`.
+ */
 export function errorMessage(error: unknown): string {
-  return String((error as { message?: unknown } | null | undefined)?.message ?? error);
+  const { message, code, errors } = (error ?? {}) as {
+    message?: unknown;
+    code?: unknown;
+    errors?: unknown;
+  };
+  if (message === undefined || message === null) return String(error);
+  if (message !== "") return String(message);
+  if (Array.isArray(errors) && errors.length > 0) {
+    return [...new Set(errors.map(errorMessage))].join("; ");
+  }
+  if (code !== undefined) return String(code);
+  return String(error);
 }

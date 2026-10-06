@@ -5,6 +5,7 @@ import { Metrics } from "../metrics/metrics";
 import type { Store } from "../stores/store";
 import { exponentialBackoff } from "../util/backoff";
 import { type Logger, silentLogger } from "../util/logger";
+import { assertPositiveInteger } from "../util/validate";
 import type { ConsumerStatus, ConsumerWakeEvents, ProcessOptions, TxHandler } from "./types";
 
 type ConsumerSettings = Required<Omit<ProcessOptions, "addresses">>;
@@ -91,6 +92,8 @@ export class Consumer {
       retryMaxMs: options.retryMaxMs ?? DEFAULT_SETTINGS.retryMaxMs,
       transactional: options.transactional ?? DEFAULT_SETTINGS.transactional,
     };
+    assertPositiveInteger("batchSize", this.settings.batchSize);
+    assertPositiveInteger("concurrency", this.settings.concurrency);
     this.logger = deps.logger ?? silentLogger;
     this.metrics = deps.metrics ?? new Metrics();
     const events = deps.events;
@@ -213,6 +216,11 @@ export class Consumer {
     return cursor;
   }
 
+  /**
+   * Where a new lane begins. "now" is resolved (and persisted) the first round the
+   * consumer sees the address, also before anything is indexed for it, so it means
+   * "indexed after the consumer started" in either order.
+   */
   private initialCursor(state: AddressState): bigint {
     const { from } = this.settings;
     if (from === "start") return state.startLt;
@@ -261,33 +269,45 @@ export class Consumer {
     );
   }
 
-  /** Each address up to its own frontier, `concurrency` addresses at a time. */
+  /**
+   * Each address up to its own frontier, `concurrency` addresses at a time. The
+   * round ends only once every worker has stopped, so no lane is ever delivered by
+   * two rounds at once; a store error fails the round after that.
+   */
   private async deliverPerAddress(states: AddressState[]): Promise<number> {
     const now = Date.now();
-    const ready = states.filter(
-      (state) => state.frontier && this.lanes.get(state.address)!.notBefore <= now,
-    );
+    const ready = states.filter((state) => this.lanes.get(state.address)!.notBefore <= now);
     let total = 0;
     let next = 0;
     const worker = async () => {
       while (this.shouldContinue()) {
         const state = ready[next++];
         if (!state) return;
-        const lane = this.lanes.get(state.address)!;
-        const cursor = await this.cursorFor(lane, state);
-        const uptoLt = state.frontier!.lt;
-        if (cursor >= uptoLt) continue;
-        const batch = await this.store.read(state.address, cursor, uptoLt, this.settings.batchSize);
-        for (const record of batch) {
-          if (!this.shouldContinue()) return;
-          if (!(await this.deliver(lane, record))) break;
-          total++;
-        }
+        total += await this.deliverLane(this.lanes.get(state.address)!, state);
       }
     };
     const workers = Math.min(this.settings.concurrency, ready.length);
-    await Promise.all(Array.from({ length: workers }, worker));
+    const results = await Promise.allSettled(Array.from({ length: workers }, worker));
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failure) throw failure.reason;
     return total;
+  }
+
+  /** One batch of one address, up to its frontier. Resolves to the number delivered. */
+  private async deliverLane(lane: Lane, state: AddressState): Promise<number> {
+    const cursor = await this.cursorFor(lane, state);
+    const uptoLt = state.frontier?.lt;
+    if (uptoLt === undefined || cursor >= uptoLt) return 0;
+    const batch = await this.store.read(state.address, cursor, uptoLt, this.settings.batchSize);
+    let delivered = 0;
+    for (const record of batch) {
+      if (!this.shouldContinue()) break;
+      if (!(await this.deliver(lane, record))) break;
+      delivered++;
+    }
+    return delivered;
   }
 
   /**

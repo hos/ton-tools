@@ -342,15 +342,9 @@ describe("indexer against a lying history plug-in", () => {
 });
 
 describe("WalkScheduler retry timing", () => {
-  // BUG: src/indexer/walk-scheduler.ts, pump(): nextReady() skips a walk whose
-  // notBefore is still in the future at its own Date.now(), then armWakeTimer()
-  // re-reads Date.now() and only arms a timer for walks with notBefore > now. If
-  // the retry delay elapses between those two reads, the walk is neither started
-  // nor timed: it waits for the next external pump(). Under start() that is the
-  // next tick (up to tickMs late); under syncOnce() drain() polls
-  // hasPendingWork() without pumping, so it loops forever. Seen as a rare hang of
-  // syncOnce() with retryMinMs: 1 (roughly 1 run in 300 here).
-  test.failing("a retry whose delay elapses during pump() still runs", async () => {
+  // A retry whose delay elapses between the "is it ready" check and arming the
+  // wake timer must still get a timer (a lost retry used to hang syncOnce()).
+  test("a retry whose delay elapses during pump() still runs", async () => {
     const realNow = Date.now.bind(Date);
     let runs = 0;
     let restore = () => {};

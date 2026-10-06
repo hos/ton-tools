@@ -25,7 +25,7 @@ export const migrations: Migration[] = [
         frontier_lt bigint,
         frontier_hash bytea,
         synced_lt bigint not null default 0,
-        synced_utime integer,
+        synced_utime bigint,
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       )`,
@@ -37,7 +37,7 @@ export const migrations: Migration[] = [
         hash bytea not null,
         prev_lt bigint not null,
         prev_hash bytea not null,
-        utime integer not null,
+        utime bigint not null,
         boc bytea not null,
         primary key (address_id, lt)
       )`,

@@ -61,9 +61,7 @@ describe("mapConcurrent", () => {
     await expect(run).rejects.toThrow("boom");
   });
 
-  // BUG: a concurrency below 1 (0, NaN from a bad env value) starts no worker and
-  // resolves to an array of holes without calling `fn` once, instead of failing.
-  test.failing("rejects a concurrency below 1 instead of silently doing nothing", async () => {
+  test("rejects a concurrency below 1 instead of silently doing nothing", async () => {
     let calls = 0;
     const run = mapConcurrent([1, 2, 3], 0, async (n) => {
       calls++;

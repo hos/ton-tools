@@ -8,11 +8,15 @@ const FAILURES_BEFORE_IGNORED_BY_DRAIN = 5;
  * Holds every walk and runs their pages under one shared concurrency limit:
  * head walks first (fresh data), then whichever has waited longest. A walk runs
  * one page at a time; `runPage` advances, finishes or reschedules it.
+ *
+ * `stop()` pauses it: pages in flight finish, but no new page starts and no retry
+ * timer is armed until `resume()`.
  */
 export class WalkScheduler {
   private readonly walks = new Map<number, Walk>();
   private lastWalkId = 0;
   private inFlight = 0;
+  private stopped = false;
   private wakeTimer: ReturnType<typeof setTimeout> | null = null;
   private idleWaiters: (() => void)[] = [];
 
@@ -77,10 +81,13 @@ export class WalkScheduler {
     return top;
   }
 
-  /** Drops the address's walks that are not fetching right now. */
-  dropIdle(address: string): void {
+  /**
+   * Drops all walks of the address. A page in flight still completes, but its
+   * walk is no longer scheduled, so it does not continue (see `has()`).
+   */
+  dropAddress(address: string): void {
     for (const [id, walk] of this.walks) {
-      if (walk.address === address && !walk.running) this.walks.delete(id);
+      if (walk.address === address) this.walks.delete(id);
     }
   }
 
@@ -107,8 +114,12 @@ export class WalkScheduler {
 
   /** Starts pages until the concurrency limit is reached or nothing is ready. */
   pump(): void {
+    if (this.stopped) return;
+    // One clock reading for both decisions: a walk not ready yet at `now` must
+    // get a timer, even if its delay elapses while this runs.
+    const now = Date.now();
     while (this.inFlight < this.concurrency) {
-      const walk = this.nextReady();
+      const walk = this.nextReady(now);
       if (!walk) break;
       walk.running = true;
       this.inFlight++;
@@ -119,16 +130,22 @@ export class WalkScheduler {
         if (this.inFlight === 0) this.notifyIdle();
       });
     }
-    this.armWakeTimer();
+    this.armWakeTimer(now);
   }
 
-  /** Stops the timer that starts walks whose retry delay has passed. */
+  /** Starts no further pages and cancels the retry timer; pages in flight still finish. */
   stop(): void {
-    if (this.wakeTimer) clearTimeout(this.wakeTimer);
+    this.stopped = true;
+    this.clearWakeTimer();
   }
 
-  private nextReady(): Walk | null {
-    const now = Date.now();
+  /** Undoes `stop()` and starts whatever is ready. */
+  resume(): void {
+    this.stopped = false;
+    this.pump();
+  }
+
+  private nextReady(now: number): Walk | null {
     let best: Walk | null = null;
     for (const walk of this.walks.values()) {
       if (walk.running || walk.notBefore > now) continue;
@@ -144,17 +161,21 @@ export class WalkScheduler {
   }
 
   /** Wakes `pump()` when the earliest waiting walk becomes ready. */
-  private armWakeTimer(): void {
-    if (this.wakeTimer) clearTimeout(this.wakeTimer);
-    this.wakeTimer = null;
+  private armWakeTimer(now: number): void {
+    this.clearWakeTimer();
     let soonest = Number.POSITIVE_INFINITY;
     for (const walk of this.walks.values()) {
-      if (!walk.running && walk.notBefore > Date.now()) soonest = Math.min(soonest, walk.notBefore);
+      if (!walk.running && walk.notBefore > now) soonest = Math.min(soonest, walk.notBefore);
     }
     if (soonest !== Number.POSITIVE_INFINITY) {
       this.wakeTimer = setTimeout(() => this.pump(), Math.max(1, soonest - Date.now()));
       this.wakeTimer.unref?.();
     }
+  }
+
+  private clearWakeTimer(): void {
+    if (this.wakeTimer) clearTimeout(this.wakeTimer);
+    this.wakeTimer = null;
   }
 
   private notifyIdle(): void {

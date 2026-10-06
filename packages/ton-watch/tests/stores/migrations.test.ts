@@ -229,16 +229,7 @@ if (process.env.TEST_DATABASE_URL) {
       expect(rows[0].n).toBe(migrations.length);
     });
 
-    // BUG: PgStore.migrate (src/stores/pg/pg-store.ts:111-117) runs `create schema if not
-    // exists` and `create table if not exists $S.schema_migrations` before taking the
-    // advisory lock, outside any transaction. In Postgres these IF NOT EXISTS checks are
-    // not race-free: when several processes migrate a fresh database at once (e.g. a
-    // service scaled to N replicas on first deploy), the losers fail with
-    // `duplicate key value violates unique constraint "pg_namespace_nspname_index"` or
-    // `"pg_type_typname_nsp_index"`. Expected: every concurrent migrate() resolves.
-    // Reproduced 3/3 runs with 10 pools. Fix: take the advisory lock (session- or
-    // xact-level) before both statements.
-    test.failing("concurrent first-time migrations from separate pools", async () => {
+    test("concurrent first-time migrations from separate pools", async () => {
       const schema = fresh();
       const pools = Array.from({ length: 10 }, () => new Pool({ connectionString: url }));
       try {

@@ -233,21 +233,40 @@ describe("WalkScheduler bookkeeping", () => {
     expect(metrics.get("ton_watch_walks_started_total", { kind: "head" })).toBe(1);
   });
 
-  test("dropIdle drops an address's waiting walks but keeps the running one", async () => {
+  test("dropAddress drops all of an address's walks, including the running one", async () => {
     const gate = deferred();
     const scheduler = new WalkScheduler(1, () => gate.promise, new Metrics());
     const running = scheduler.add(range("head", 10n));
     const waiting = scheduler.add(range("gap", 5n));
     const other = scheduler.add(range("gap", 5n, 0n, B));
     expect(running.running).toBe(true);
-    scheduler.dropIdle(A);
-    expect(scheduler.has(running)).toBe(true);
+    scheduler.dropAddress(A);
+    expect(scheduler.has(running)).toBe(false);
     expect(scheduler.has(waiting)).toBe(false);
     expect(scheduler.has(other)).toBe(true);
-    scheduler.remove(running);
+    expect(scheduler.pagesInFlight).toBe(1); // the page in flight still completes
     scheduler.remove(other);
     gate.resolve();
     await scheduler.whenIdle();
+  });
+
+  test("stop() starts no new pages until resume()", async () => {
+    let runs = 0;
+    const scheduler: WalkScheduler = new WalkScheduler(
+      1,
+      async (walk) => {
+        runs++;
+        scheduler.remove(walk);
+      },
+      new Metrics(),
+    );
+    scheduler.stop();
+    scheduler.add(range("gap", 5n));
+    await sleep(10);
+    expect(runs).toBe(0);
+    scheduler.resume();
+    await scheduler.whenIdle();
+    expect(runs).toBe(1);
   });
 
   test("hasPendingWork ignores walks failing repeatedly and parked walks", () => {
