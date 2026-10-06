@@ -45,7 +45,7 @@ describe("filter", () => {
     expect(res.fulfilled.length).toEqual(servers.length);
   });
 
-  test.only("fast and good should be 1 when some server has successCount greater than 0", async () => {
+  test("fast and good should be 1 when some server has successCount greater than 0", async () => {
     const servers: MockedLiteServer[] = [
       mockServer({}, { successCount: 1 }),
       mockServer({}, { successCount: 0 }),
