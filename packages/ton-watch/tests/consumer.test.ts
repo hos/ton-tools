@@ -1,5 +1,5 @@
-import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 
 import { Consumer } from "../src/consumer";
 import { MemoryStore } from "../src/stores/memory-store";
@@ -101,10 +101,15 @@ describe("Consumer (per-address order)", () => {
         }
         got.set(tx.address, [...(got.get(tx.address) ?? []), tx.lt]);
       },
-      { retryMinMs: 1, retryMaxMs: 2 }
+      { retryMinMs: 1, retryMaxMs: 2 },
     );
     await c.runOnce();
-    expect(got.get(A)).toEqual(chain.txs(A).slice(0, 10).map((t) => t.lt));
+    expect(got.get(A)).toEqual(
+      chain
+        .txs(A)
+        .slice(0, 10)
+        .map((t) => t.lt),
+    );
     expect(got.get(B)?.length).toBe(chain.txs(B).length);
     expect(c.status().addresses.find((s) => s.address === A)?.failures).toBe(1);
 
@@ -120,13 +125,22 @@ describe("Consumer (per-address order)", () => {
     const { chain, store } = await seeded();
     await writeAll(store, chain, [A]);
     const got: bigint[] = [];
-    await drain(new Consumer("n", store, (tx) => void got.push(tx.lt), { from: "now", addresses: [A] }));
+    await drain(
+      new Consumer("n", store, (tx) => void got.push(tx.lt), { from: "now", addresses: [A] }),
+    );
     expect(got).toEqual([]);
     chain.grow([A], 5);
     await store.write(A, chain.txs(A).slice(-5));
     await store.advanceFrontier(A);
-    await drain(new Consumer("n", store, (tx) => void got.push(tx.lt), { from: "now", addresses: [A] }));
-    expect(got).toEqual(chain.txs(A).slice(-5).map((t) => t.lt));
+    await drain(
+      new Consumer("n", store, (tx) => void got.push(tx.lt), { from: "now", addresses: [A] }),
+    );
+    expect(got).toEqual(
+      chain
+        .txs(A)
+        .slice(-5)
+        .map((t) => t.lt),
+    );
   });
 
   test("start/stop loop wakes on indexer events", async () => {
@@ -134,12 +148,19 @@ describe("Consumer (per-address order)", () => {
     const { EventEmitter } = await import("node:events");
     const events = new EventEmitter();
     const got: bigint[] = [];
-    const c = new Consumer("loop", store, (tx) => void got.push(tx.lt), { addresses: [A], pollMs: 60_000 }, { events });
+    const c = new Consumer(
+      "loop",
+      store,
+      (tx) => void got.push(tx.lt),
+      { addresses: [A], pollMs: 60_000 },
+      { events },
+    );
     c.start();
     await store.write(A, chain.txs(A));
     await store.advanceFrontier(A);
     events.emit("frontier", A, 0n);
-    for (let i = 0; i < 100 && got.length < chain.txs(A).length; i++) await new Promise((r) => setTimeout(r, 5));
+    for (let i = 0; i < 100 && got.length < chain.txs(A).length; i++)
+      await new Promise((r) => setTimeout(r, 5));
     await c.stop();
     expect(got.length).toBe(chain.txs(A).length);
   });
@@ -155,7 +176,10 @@ describe("Consumer (global order)", () => {
     const watermark = chain.txs(C)[29]!.lt;
 
     const got: IndexedTx[] = [];
-    const c = new Consumer("g", store, (tx) => void got.push(tx), { order: "global", batchSize: 9 });
+    const c = new Consumer("g", store, (tx) => void got.push(tx), {
+      order: "global",
+      batchSize: 9,
+    });
     await drain(c);
     const lts = got.map((t) => t.lt);
     expect(lts).toEqual([...lts].sort((a, b) => (a < b ? -1 : 1)));
@@ -184,7 +208,10 @@ describe("Consumer (global order)", () => {
     const tip = chain.tip();
     await store.markSynced([A, B, C], tip.syncLt, tip.utime);
     const got: bigint[] = [];
-    const c = new Consumer("g", store, (tx) => void got.push(tx.lt), { order: "global", from: "now" });
+    const c = new Consumer("g", store, (tx) => void got.push(tx.lt), {
+      order: "global",
+      from: "now",
+    });
     await drain(c);
     expect(got).toEqual([]);
     chain.grow([A], 10); // B and C idle
@@ -195,7 +222,12 @@ describe("Consumer (global order)", () => {
     expect(got).toEqual([]);
     await store.markSynced([B, C], chain.tip().syncLt, chain.tip().utime);
     await drain(c);
-    expect(got).toEqual(chain.txs(A).slice(-10).map((t) => t.lt));
+    expect(got).toEqual(
+      chain
+        .txs(A)
+        .slice(-10)
+        .map((t) => t.lt),
+    );
   });
 });
 
@@ -214,7 +246,11 @@ describe("Consumer + Postgres transaction", () => {
       // Crash after the side effect on every 5th tx, first attempt only.
       if (Number(tx.lt % 5n) === 0 && attempts++ % 2 === 0) throw new Error("crash after write");
     };
-    const c = new Consumer("sales", store, handler, { addresses: [A], retryMinMs: 0, retryMaxMs: 0 });
+    const c = new Consumer("sales", store, handler, {
+      addresses: [A],
+      retryMinMs: 0,
+      retryMaxMs: 0,
+    });
     for (let i = 0; i < 50; i++) await c.runOnce();
     const { rows } = await db.query<{ n: number }>(`select count(*)::int as n from sales`);
     expect(rows[0]!.n).toBe(chain.txs(A).length);

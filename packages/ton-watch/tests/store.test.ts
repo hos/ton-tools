@@ -1,5 +1,5 @@
-import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 
 import { MemoryStore } from "../src/stores/memory-store";
 import { PgStore } from "../src/stores/pg/pg-store";
@@ -134,9 +134,7 @@ for (const [name, make] of factories) {
 
     test("concurrent overlapping writers on the same address", async () => {
       const txs = chain.txs(A);
-      const batches = Array.from({ length: 12 }, (_, i) =>
-        shuffle(txs, i).slice(0, 20)
-      );
+      const batches = Array.from({ length: 12 }, (_, i) => shuffle(txs, i).slice(0, 20));
       const counts = await Promise.all(batches.map((b) => store.write(A, b)));
       const stored = (await store.read(A, 0n, 1n << 62n, 1000)).length;
       expect(counts.reduce((a, b) => a + b, 0)).toBe(stored);
@@ -218,7 +216,7 @@ describe("PgStore migrations", () => {
     await s2.migrate();
     expect((await s2.read(A, 0n, 1n << 62n, 100)).length).toBe(5);
     const { rows } = await db.query<{ version: number }>(
-      `select version from ton_watch.schema_migrations`
+      `select version from ton_watch.schema_migrations`,
     );
     expect(rows.map((r) => r.version)).toEqual([1]);
   });

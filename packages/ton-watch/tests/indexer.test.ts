@@ -1,5 +1,5 @@
-import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 
 import { Indexer } from "../src/indexer";
 import { MemoryStore } from "../src/stores/memory-store";
@@ -7,7 +7,8 @@ import { PgStore } from "../src/stores/pg/pg-store";
 import type { Store } from "../src/stores/store";
 import { FakeChain, FakeSource, fakeAddress, rng } from "./fixtures/fake-chain";
 
-const addrs = (n: number, offset = 1) => Array.from({ length: n }, (_, i) => fakeAddress(i + offset));
+const addrs = (n: number, offset = 1) =>
+  Array.from({ length: n }, (_, i) => fakeAddress(i + offset));
 
 async function expectComplete(store: Store, chain: FakeChain, addresses: string[]) {
   for (const a of addresses) {
@@ -45,23 +46,43 @@ describe("Indexer", () => {
     const { chain, addresses, store, source } = await setup(6, 120, {
       faults: { seed: 42, rateLimit: 0.2, timeout: 0.1, badResponse: 0.1, latencyMs: [0, 4] },
     });
-    const indexer = new Indexer({ store, source, concurrency: 12, detect: "poll", retryMinMs: 1, retryMaxMs: 5 });
+    const indexer = new Indexer({
+      store,
+      source,
+      concurrency: 12,
+      detect: "poll",
+      retryMinMs: 1,
+      retryMaxMs: 5,
+    });
     await indexer.syncOnce(200);
     await expectComplete(store, chain, addresses);
-    expect(indexer.metrics.get("ton_watch_errors_total", { kind: "rate_limit", where: "walk" })).toBeGreaterThan(0);
-    expect(indexer.metrics.get("ton_watch_errors_total", { kind: "bad_response", where: "walk" })).toBeGreaterThan(0);
+    expect(
+      indexer.metrics.get("ton_watch_errors_total", { kind: "rate_limit", where: "walk" }),
+    ).toBeGreaterThan(0);
+    expect(
+      indexer.metrics.get("ton_watch_errors_total", { kind: "bad_response", where: "walk" }),
+    ).toBeGreaterThan(0);
   });
 
   test("history beyond the archive is parked, never skipped, and resumes when served", async () => {
     const { chain, addresses, store, source } = await setup(1, 64);
     const [a] = addresses as [string];
     source.faults = { archiveFloorLt: chain.txs(a)[40]!.lt };
-    const indexer = new Indexer({ store, source, detect: "poll", archiveRetryMs: 1, retryMinMs: 1, retryMaxMs: 2 });
+    const indexer = new Indexer({
+      store,
+      source,
+      detect: "poll",
+      archiveRetryMs: 1,
+      retryMinMs: 1,
+      retryMaxMs: 2,
+    });
     await indexer.syncOnce(10);
     const state = await store.getAddress(a);
     expect(state?.frontier).toBeNull(); // nothing delivered past the hole
     expect(indexer.status()[0]!.stuck).toBe(1);
-    expect(indexer.metrics.get("ton_watch_errors_total", { kind: "archive_unavailable", where: "walk" })).toBeGreaterThan(0);
+    expect(
+      indexer.metrics.get("ton_watch_errors_total", { kind: "archive_unavailable", where: "walk" }),
+    ).toBeGreaterThan(0);
 
     source.faults = {}; // archival server appears
     await new Promise((r) => setTimeout(r, 5));
@@ -114,7 +135,14 @@ describe("Indexer", () => {
       store,
       faults: { seed: 5, latencyMs: [0, 3], rateLimit: 0.1 },
     });
-    const indexer = new Indexer({ store, source, concurrency: 8, detect: "poll", retryMinMs: 1, retryMaxMs: 5 });
+    const indexer = new Indexer({
+      store,
+      source,
+      concurrency: 8,
+      detect: "poll",
+      retryMinMs: 1,
+      retryMaxMs: 5,
+    });
     await indexer.syncOnce();
     await expectComplete(store, chain, addresses);
   });
@@ -128,7 +156,12 @@ describe("Indexer", () => {
     await store.addAddress(late, { startLt: chain.txs(late)[19]!.lt });
     await indexer.syncOnce();
     const stored = await store.read(late, 0n, 1n << 62n, 100);
-    expect(stored.map((t) => t.lt)).toEqual(chain.txs(late).slice(20).map((t) => t.lt));
+    expect(stored.map((t) => t.lt)).toEqual(
+      chain
+        .txs(late)
+        .slice(20)
+        .map((t) => t.lt),
+    );
     expect((await store.getAddress(late))?.frontier?.lt).toBe(chain.txs(late).at(-1)!.lt);
     await expectComplete(store, chain, addresses);
   });
@@ -162,7 +195,11 @@ describe("long range splitting", () => {
       await indexer.syncOnce();
       const ms = performance.now() - t;
       await expectComplete(store, chain, addresses);
-      return { ms, pages: source.calls.getTransactions!, splits: indexer.metrics.get("ton_watch_split_points_total") };
+      return {
+        ms,
+        pages: source.calls.getTransactions!,
+        splits: indexer.metrics.get("ton_watch_split_points_total"),
+      };
     };
     const serial = await run(false);
     const parallel = await run(true);
@@ -174,8 +211,15 @@ describe("long range splitting", () => {
   });
 
   test("a split that finds nothing leaves the walk intact", async () => {
-    const { chain, addresses, store, source } = await setup(1, 1000, { faults: { noFindTxNear: true } });
-    const indexer = new Indexer({ store, source, detect: "poll", split: { minTxs: 100, targetTxs: 50 } });
+    const { chain, addresses, store, source } = await setup(1, 1000, {
+      faults: { noFindTxNear: true },
+    });
+    const indexer = new Indexer({
+      store,
+      source,
+      detect: "poll",
+      split: { minTxs: 100, targetTxs: 50 },
+    });
     await indexer.syncOnce();
     await expectComplete(store, chain, addresses);
   });
@@ -184,7 +228,13 @@ describe("long range splitting", () => {
 describe("change detection cost", () => {
   test("poll mode backs off idle addresses", async () => {
     const { chain, store, source } = await setup(50, 2);
-    const indexer = new Indexer({ store, source, detect: "poll", tickMs: 100, maxIdlePollMs: 3_200 });
+    const indexer = new Indexer({
+      store,
+      source,
+      detect: "poll",
+      tickMs: 100,
+      maxIdlePollMs: 3_200,
+    });
     await indexer.syncOnce();
     const base = source.calls.getLastTx!;
     // 30 ticks, 100ms apart, chain moving but our addresses idle.

@@ -16,16 +16,24 @@ function member(id: string, behavior: Behavior, archive = false) {
   };
 }
 
-const ok = (v: string): Behavior => async () => v;
-const fail = (msg: string): Behavior => async () => {
-  throw new Error(msg);
-};
+const ok =
+  (v: string): Behavior =>
+  async () =>
+    v;
+const fail =
+  (msg: string): Behavior =>
+  async () => {
+    throw new Error(msg);
+  };
 
 describe("error classification", () => {
   test.each([
     ["LITE_SERVER_UNKNOWN: too many requests", "rate_limit"],
     ["cannot locate transaction in block with specified logical time", "archive_unavailable"],
-    ["block (0,8000000000000000,1) is not in db (possibly out of sync: shard_client_seqno=1)", "not_ready"],
+    [
+      "block (0,8000000000000000,1) is not in db (possibly out of sync: shard_client_seqno=1)",
+      "not_ready",
+    ],
     ["Timeout", "timeout"],
     ["Engine is closed", "network"],
     ["something else", "unknown"],
@@ -39,7 +47,9 @@ describe("ServerPool", () => {
     const limited = member("limited", fail("too many requests"));
     const healthy = member("healthy", ok("ok"));
     const pool = new ServerPool([limited, healthy], { maxInFlightPerServer: 1 });
-    const results = await Promise.all(Array.from({ length: 20 }, () => pool.call("m", (c) => c.run())));
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => pool.call("m", (c) => c.run())),
+    );
     expect(results.every((r) => r === "ok")).toBe(true);
     // Once limited it is left alone for its cooldown.
     expect(limited.calls.length).toBeLessThanOrEqual(2);
@@ -65,7 +75,10 @@ describe("ServerPool", () => {
   });
 
   test("gives up with archive_unavailable when nobody has the data", async () => {
-    const pool = new ServerPool([member("a", fail("cannot locate transaction")), member("b", fail("not in db"))]);
+    const pool = new ServerPool([
+      member("a", fail("cannot locate transaction")),
+      member("b", fail("not in db")),
+    ]);
     const err = await pool.call("m", (c) => c.run()).catch((e) => e);
     expect(err).toBeInstanceOf(SourceError);
     expect(classifyError(err)).toBe("archive_unavailable");

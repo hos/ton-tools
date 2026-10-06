@@ -2,7 +2,7 @@
  * Shared helpers for the live benchmarks. Everything here talks to mainnet public
  * liteservers (and toncenter for setup and cross-checks only).
  */
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Address } from "@ton/core";
 
@@ -13,7 +13,10 @@ const TONCENTER = "https://toncenter.com/api/v3";
 let lastToncenter = 0;
 
 /** Rate-limited toncenter GET (1 rps without an API key). */
-export async function toncenter<T = any>(path: string, params: Record<string, string | number>): Promise<T> {
+export async function toncenter<T = any>(
+  path: string,
+  params: Record<string, string | number>,
+): Promise<T> {
   const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
   for (let attempt = 0; ; attempt++) {
     const wait = lastToncenter + 1_100 - Date.now();
@@ -45,7 +48,7 @@ export function saveResult(name: string, data: unknown) {
   const file = join(RESULTS_DIR, `${name}.json`);
   writeFileSync(
     file,
-    JSON.stringify(data, (_, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n"
+    JSON.stringify(data, (_, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n",
   );
   console.log(`saved ${file}`);
 }

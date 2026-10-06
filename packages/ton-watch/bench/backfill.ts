@@ -78,7 +78,7 @@ for (const size of sizes) {
         ["getTip", "getAccountState", "getTransactions"].map((m) => [
           m,
           metrics.get("ton_watch_source_calls_total", { method: m }),
-        ])
+        ]),
       ),
       errors,
       complete: `${complete}/${size}`,
@@ -86,7 +86,7 @@ for (const size of sizes) {
     runs.push(run);
     console.log(
       `N=${size} c=${concurrency}: ${run.txs} tx in ${fmt(seconds)}s → ${fmt(run.txPerSecond)} tx/s, ` +
-        `${calls} calls (${fmt(run.callsPerSecond)}/s), ${errors} errors, complete ${run.complete}`
+        `${calls} calls (${fmt(run.callsPerSecond)}/s), ${errors} errors, complete ${run.complete}`,
     );
   }
 }

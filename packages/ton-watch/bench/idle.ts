@@ -5,7 +5,7 @@
  *
  *   bun run bench/idle.ts [--n 1000] [--minutes 5] [--modes poll,blocks]
  */
-import { Indexer, type DetectMode } from "../src/indexer";
+import { type DetectMode, Indexer } from "../src/indexer";
 import { Metrics } from "../src/metrics";
 import { LiteSource } from "../src/source/lite-source";
 import { MemoryStore } from "../src/stores/memory-store";
@@ -28,7 +28,11 @@ for (const detect of modes) {
   const store = new MemoryStore();
   const tip = await source.getTip();
   for (const a of addresses) {
-    await store.addAddress(a, { startLt: tip.syncLt, syncedLt: tip.syncLt, syncedUtime: tip.utime });
+    await store.addAddress(a, {
+      startLt: tip.syncLt,
+      syncedLt: tip.syncLt,
+      syncedUtime: tip.utime,
+    });
   }
   const indexer = new Indexer({ store, source, metrics, detect, tickMs: 1000 });
   indexer.start();
@@ -48,7 +52,7 @@ for (const detect of modes) {
   const byMethod = Object.fromEntries(
     Object.entries(metrics.snapshot())
       .filter(([k]) => k.startsWith("ton_watch_source_calls_total"))
-      .map(([k, v]) => [k.replace(/.*method="(.*)".*/, "$1"), (v - (base[k] ?? 0)) / elapsedMin])
+      .map(([k, v]) => [k.replace(/.*method="(.*)".*/, "$1"), (v - (base[k] ?? 0)) / elapsedMin]),
   );
   const run = {
     detect,
@@ -64,7 +68,7 @@ for (const detect of modes) {
   console.log(
     `${detect}: ${fmt(run.callsPerMinute)} calls/min for ${n} addresses ` +
       `(${run.txIndexed} tx indexed meanwhile, lag p50 ${run.lagSecondsP50}s p99 ${run.lagSecondsP99}s)`,
-    byMethod
+    byMethod,
   );
 }
 

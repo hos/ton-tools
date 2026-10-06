@@ -1,6 +1,6 @@
-import { describe, expect, test, spyOn } from "bun:test";
-import { filterLiteServers } from "../src/index.ts";
+import { describe, expect, spyOn, test } from "bun:test";
 import * as Filter from "../src/filter.ts";
+import { filterLiteServers } from "../src/index.ts";
 
 type MockedLiteServer = Filter.LsConfig & {
   _result: Filter.ServerBenchmark;
@@ -10,13 +10,10 @@ spyOn(Filter, "benchmark").mockImplementation(
   // @ts-expect-error - we will have _result in the mocked object.
   async (ls: MockedLiteServer) => {
     return ls._result;
-  }
+  },
 );
 
-const mockServer = (
-  server: Partial<MockedLiteServer>,
-  result: Partial<Filter.ServerBenchmark>
-) => {
+const mockServer = (server: Partial<MockedLiteServer>, result: Partial<Filter.ServerBenchmark>) => {
   return {
     _result: {
       successCount: 1,

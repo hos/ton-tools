@@ -1,5 +1,5 @@
-import { classifyError, SourceError, type ErrorKind } from "../errors";
-import { silentLogger, type Logger } from "../logger";
+import { classifyError, type ErrorKind, SourceError } from "../errors";
+import { type Logger, silentLogger } from "../logger";
 import { Metrics } from "../metrics";
 
 export interface PoolMember<C> {
@@ -115,7 +115,7 @@ export class ServerPool<C> {
               lastError ? classifyError(lastError) : "network",
               `${method}: no server could serve the request` +
                 (lastError ? `: ${String((lastError as Error)?.message ?? lastError)}` : ""),
-              lastError
+              lastError,
             );
       }
 
@@ -144,11 +144,14 @@ export class ServerPool<C> {
           member.cooldownUntil = Date.now() + this.backoff(member.rateLimits);
         } else if (kind === "timeout" || kind === "network" || kind === "not_ready") {
           member.failures++;
-          member.cooldownUntil = Date.now() + Math.min(this.maxCooldownMs, 250 * 2 ** member.failures);
+          member.cooldownUntil =
+            Date.now() + Math.min(this.maxCooldownMs, 250 * 2 ** member.failures);
           if (kind === "not_ready") skip.add(member);
         }
         if (++attempts >= this.maxAttempts) {
-          throw error instanceof SourceError ? error : new SourceError(kind, `${method}: ${(error as Error)?.message ?? error}`, error);
+          throw error instanceof SourceError
+            ? error
+            : new SourceError(kind, `${method}: ${(error as Error)?.message ?? error}`, error);
         }
       } finally {
         member.inFlight--;
@@ -169,7 +172,7 @@ export class ServerPool<C> {
       new Promise<never>((_, reject) => {
         timer = setTimeout(
           () => reject(new SourceError("timeout", `${method} timed out after ${this.timeoutMs}ms`)),
-          this.timeoutMs
+          this.timeoutMs,
         );
       }),
     ]).finally(() => clearTimeout(timer));

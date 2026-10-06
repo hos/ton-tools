@@ -84,7 +84,8 @@ export class ToncenterHistory implements HistorySource {
     });
     const body = await this.request(`/getTransactions?${params}`);
     const txs = body.result as V2Tx[];
-    if (!Array.isArray(txs)) throw new SourceError("bad_response", "toncenter: result is not a list");
+    if (!Array.isArray(txs))
+      throw new SourceError("bad_response", "toncenter: result is not a list");
     if (txs.length === 0) {
       throw new SourceError("archive_unavailable", `toncenter has no transaction at lt ${from.lt}`);
     }
@@ -123,7 +124,11 @@ export class ToncenterHistory implements HistorySource {
         lastError =
           e instanceof SourceError
             ? e
-            : new SourceError(/timeout|abort/i.test(String(e)) ? "timeout" : "network", String((e as Error)?.message ?? e), e);
+            : new SourceError(
+                /timeout|abort/i.test(String(e)) ? "timeout" : "network",
+                String((e as Error)?.message ?? e),
+                e,
+              );
       }
       // Back off: push our own next slot out.
       this.nextSlot = Math.max(this.nextSlot, Date.now() + Math.min(30_000, 1000 * 2 ** attempt));

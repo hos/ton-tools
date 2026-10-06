@@ -1,12 +1,12 @@
 import { Address } from "@ton/core";
 
 import { Consumer, type ProcessOptions, type TxHandler } from "./consumer";
-import { Indexer, type AddressStatus, type IndexerOptions } from "./indexer";
+import { type AddressStatus, Indexer, type IndexerOptions } from "./indexer";
 import { logger as defaultLogger, type Logger } from "./logger";
 import { Metrics } from "./metrics";
 import type { TxSource } from "./source/source";
 import type { Store } from "./stores/store";
-import { completeUpTo, type AddressState } from "./types";
+import { type AddressState, completeUpTo } from "./types";
 
 export interface TonWatchOptions extends Omit<IndexerOptions, "store" | "source"> {
   store: Store;
@@ -128,7 +128,7 @@ export class TonWatch {
       this.store,
       handler,
       { ...options, addresses: options.addresses?.map(toRaw) },
-      { events: this.indexer, logger: this.logger, metrics: this.metrics }
+      { events: this.indexer, logger: this.logger, metrics: this.metrics },
     );
     this.consumers.add(consumer);
     if (this.started) consumer.start();
@@ -158,7 +158,9 @@ export class TonWatch {
     const maxLag = lags.length ? Math.max(...lags) : null;
     const stuck = statuses.reduce((n, s) => n + s.stuck, 0);
     const reasons: string[] = [];
-    const tickAge = this.indexer.lastTickAt ? (Date.now() - this.indexer.lastTickAt) / 1000 : Infinity;
+    const tickAge = this.indexer.lastTickAt
+      ? (Date.now() - this.indexer.lastTickAt) / 1000
+      : Infinity;
     if (!this.started) reasons.push("not running");
     if (tickAge > 60) reasons.push(`no successful tick for ${Math.round(tickAge)}s`);
     if (maxLag != null && maxLag > maxLagSeconds) reasons.push(`max lag ${maxLag}s`);

@@ -4,7 +4,7 @@
  *
  *   bun run bench/accounts.ts
  */
-import { saveResult, sampleActiveAccounts, toncenter } from "./lib";
+import { sampleActiveAccounts, saveResult, toncenter } from "./lib";
 
 // Sample ~24k recent transactions spread over 12 hours.
 const ranked = await sampleActiveAccounts(24, 12);

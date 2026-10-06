@@ -28,7 +28,9 @@ describe("ToncenterHistory", () => {
     expect(page.length).toBe(5);
     expect(() => validatePage(from, page)).not.toThrow();
     // Hashes are recomputed from the BOC, and match what toncenter claims.
-    page.forEach((t, i) => expect(t.hash.toString("base64")).toBe(fixture.result[i]!.transaction_id.hash));
+    page.forEach((t, i) =>
+      expect(t.hash.toString("base64")).toBe(fixture.result[i]!.transaction_id.hash),
+    );
     const url = new URL(seen[0]!.url);
     expect(url.pathname).toBe("/api/v2/getTransactions");
     expect(url.searchParams.get("archival")).toBe("true");
@@ -62,7 +64,9 @@ describe("ToncenterHistory", () => {
 
   test("an empty result is archive_unavailable", async () => {
     const { impl } = mockFetch([{ body: { ok: true, result: [] } }]);
-    const err = await new ToncenterHistory({ fetch: impl, rps: 1000 }).getTransactions(ADDRESS, from, 5).catch((e) => e);
+    const err = await new ToncenterHistory({ fetch: impl, rps: 1000 })
+      .getTransactions(ADDRESS, from, 5)
+      .catch((e) => e);
     expect(classifyError(err)).toBe("archive_unavailable");
   });
 

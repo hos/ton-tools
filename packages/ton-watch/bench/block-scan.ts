@@ -26,13 +26,18 @@ if (!accounts) throw new Error("run bench/accounts.ts first");
 
 const MASTER = "-9223372036854775808";
 const now = Math.floor(Date.now() / 1000);
-const { blocks } = await toncenter("/blocks", { workchain: -1, start_utime: now - hours * 3600, limit: 1, sort: "asc" });
+const { blocks } = await toncenter("/blocks", {
+  workchain: -1,
+  start_utime: now - hours * 3600,
+  limit: 1,
+  sort: "asc",
+});
 const firstSeqno = Number(blocks[0].seqno);
 
 const runs: any[] = [];
 for (const size of sizes) {
   const watched = new Set<string>(
-    accounts.active.slice(0, size).map((a: any) => Address.parse(a.address).hash.toString("hex"))
+    accounts.active.slice(0, size).map((a: any) => Address.parse(a.address).hash.toString("hex")),
   );
   const metrics = new Metrics();
   const source = await LiteSource.connect({ metrics, maxInFlightPerServer: 4 });
@@ -41,10 +46,13 @@ for (const size of sizes) {
 
   const shardsAt = async (seqno: number) => {
     const { id } = await pool.call("lookupBlock", (c) =>
-      c.lookupBlockByID({ workchain: -1, shard: MASTER, seqno })
+      c.lookupBlockByID({ workchain: -1, shard: MASTER, seqno }),
     );
     const res = (await pool.call("getAllShardsInfo", (c) =>
-      c.engine.query(Functions.liteServer_getAllShardsInfo, { kind: "liteServer.getAllShardsInfo", id })
+      c.engine.query(Functions.liteServer_getAllShardsInfo, {
+        kind: "liteServer.getAllShardsInfo",
+        id,
+      }),
     )) as liteServer_allShardsInfo;
     return parseShardTops(res.data).filter((s) => s.workchain === 0);
   };
@@ -57,7 +65,10 @@ for (const size of sizes) {
 
   // Process masterchain blocks in windows of `concurrency`, keeping order of shard tops.
   for (let s = firstSeqno; s <= lastSeqno; s += concurrency) {
-    const seqnos = Array.from({ length: Math.min(concurrency, lastSeqno - s + 1) }, (_, i) => s + i);
+    const seqnos = Array.from(
+      { length: Math.min(concurrency, lastSeqno - s + 1) },
+      (_, i) => s + i,
+    );
     const tops = await Promise.all(seqnos.map(shardsAt));
     const work: { shard: string; seqno: number }[] = [];
     for (const t of tops) {
@@ -71,13 +82,13 @@ for (const size of sizes) {
     await Promise.all(
       work.map(async (b) => {
         const { id } = await pool.call("lookupBlock", (c) =>
-          c.lookupBlockByID({ workchain: 0, shard: b.shard, seqno: b.seqno })
+          c.lookupBlockByID({ workchain: 0, shard: b.shard, seqno: b.seqno }),
         );
         let after: any = null;
         const mine: { account: Buffer; lt: string; hash: Buffer }[] = [];
         for (;;) {
           const res = await pool.call("listBlockTransactions", (c) =>
-            c.listBlockTransactions(id, { mode: 7 + (after ? 128 : 0), count: 256, after })
+            c.listBlockTransactions(id, { mode: 7 + (after ? 128 : 0), count: 256, after }),
           );
           chainTxs += res.ids.length;
           for (const t of res.ids) {
@@ -89,20 +100,31 @@ for (const size of sizes) {
         }
         // Fetch the matching transactions themselves (one call per account per block).
         const byAccount = new Map<string, typeof mine>();
-        for (const t of mine) byAccount.set(t.account.toString("hex"), [...(byAccount.get(t.account.toString("hex")) ?? []), t]);
+        for (const t of mine)
+          byAccount.set(t.account.toString("hex"), [
+            ...(byAccount.get(t.account.toString("hex")) ?? []),
+            t,
+          ]);
         for (const [hex, list] of byAccount) {
           const newest = list.reduce((a, b) => (BigInt(b.lt) > BigInt(a.lt) ? b : a));
           const r = await pool.call("getTransactions", (c) =>
-            c.getAccountTransactions(Address.parse(`0:${hex}`), newest.lt, newest.hash, list.length)
+            c.getAccountTransactions(
+              Address.parse(`0:${hex}`),
+              newest.lt,
+              newest.hash,
+              list.length,
+            ),
           );
           txs += Cell.fromBoc(r.transactions).length;
         }
-      })
+      }),
     );
     if ((s - firstSeqno) % (concurrency * 50) === 0) {
       const done = s - firstSeqno;
       const el = (performance.now() - started) / 1000;
-      console.log(`  N=${size}: ${done}/${lastSeqno - firstSeqno} mc blocks, ${txs} tx, ${fmt(el)}s`);
+      console.log(
+        `  N=${size}: ${done}/${lastSeqno - firstSeqno} mc blocks, ${txs} tx, ${fmt(el)}s`,
+      );
     }
   }
   const seconds = (performance.now() - started) / 1000;
@@ -126,7 +148,7 @@ for (const size of sizes) {
   runs.push(run);
   console.log(
     `block scan N=${size}: ${mcBlocks} mc blocks / ${shardBlocks} shard blocks, ${txs} tx in ${fmt(seconds)}s → ` +
-      `${fmt(run.txPerSecond)} tx/s, ${calls} calls (${fmt(run.callsPerSecond)}/s, ${fmt(run.callsPerMcBlock)}/mc block)`
+      `${fmt(run.txPerSecond)} tx/s, ${calls} calls (${fmt(run.callsPerSecond)}/s, ${fmt(run.callsPerMcBlock)}/mc block)`,
   );
 }
 

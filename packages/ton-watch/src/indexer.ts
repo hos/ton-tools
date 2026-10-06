@@ -2,13 +2,13 @@ import { EventEmitter } from "node:events";
 
 import { validatePage } from "./chain";
 import { classifyError, type ErrorKind } from "./errors";
-import { silentLogger, type Logger } from "./logger";
 import type { HistoryOptions } from "./history";
+import { type Logger, silentLogger } from "./logger";
 import { Metrics } from "./metrics";
 import type { ChainTip, TxSource } from "./source/source";
 import type { Store } from "./stores/store";
 import { toFriendlyAddress } from "./ton";
-import { txIdEquals, type AddressState, type TxId } from "./types";
+import { type AddressState, type TxId, txIdEquals } from "./types";
 
 export type DetectMode = "poll" | "blocks" | "auto";
 
@@ -214,7 +214,7 @@ export class Indexer extends EventEmitter {
       // Same block: only addresses without a verified starting point (new, or failed).
       await this.pollAddresses(
         [...this.runtimes.values()].filter((rt) => !rt.known),
-        tip
+        tip,
       );
     }
     this.scheduleHeads();
@@ -229,7 +229,7 @@ export class Indexer extends EventEmitter {
   async drain(): Promise<void> {
     for (;;) {
       const pending = [...this.walks.values()].filter(
-        (w) => w.running || (!isParked(w) && w.failures < 5)
+        (w) => w.running || (!isParked(w) && w.failures < 5),
       );
       if (pending.length === 0 && this.inFlight === 0) return;
       await new Promise<void>((r) => {
@@ -301,7 +301,8 @@ export class Indexer extends EventEmitter {
     for (const address of [...this.runtimes.keys()]) {
       if (seen.has(address)) continue;
       this.runtimes.delete(address);
-      for (const [id, w] of this.walks) if (w.address === address && !w.running) this.walks.delete(id);
+      for (const [id, w] of this.walks)
+        if (w.address === address && !w.running) this.walks.delete(id);
       if (this.o.addressMetrics) this.metrics.clearGauges(`ton_watch_address_`);
     }
   }
@@ -320,9 +321,7 @@ export class Indexer extends EventEmitter {
     let toPoll: Runtime[];
 
     if (this.useBlocks() && this.lastDetectTip && this.blocksVerified) {
-      const workchains = new Set(
-        [...this.runtimes.keys()].map((a) => Number(a.split(":")[0]))
-      );
+      const workchains = new Set([...this.runtimes.keys()].map((a) => Number(a.split(":")[0])));
       let touched: Map<string, TxId> | null = null;
       try {
         touched = await this.source.getTouchedAccounts!(this.lastDetectTip, tip, workchains);
@@ -361,7 +360,7 @@ export class Indexer extends EventEmitter {
     } else {
       const blocks = this.useBlocks();
       toPoll = [...this.runtimes.values()].filter(
-        (rt) => blocks || !rt.known || rt.nextPollAt <= now
+        (rt) => blocks || !rt.known || rt.nextPollAt <= now,
       );
     }
 
@@ -378,7 +377,9 @@ export class Indexer extends EventEmitter {
         if (rt.reconciling !== undefined) {
           if (!txIdEquals(rt.reconciling, last) && (last?.lt ?? 0n) > (rt.reconciling?.lt ?? 0n)) {
             this.metrics.inc("ton_watch_reconcile_misses_total");
-            this.logger.warn(`[${toFriendlyAddress(rt.state.address)}] block listing missed a transaction; reconciled`);
+            this.logger.warn(
+              `[${toFriendlyAddress(rt.state.address)}] block listing missed a transaction; reconciled`,
+            );
           }
           rt.reconciling = undefined;
         }
@@ -442,7 +443,7 @@ export class Indexer extends EventEmitter {
         rt.gapsOpen = gaps.length;
         for (const gap of gaps) {
           const covered = [...this.walks.values()].some(
-            (w) => w.address === address && w.floorLt < gap.prevLt && gap.prevLt <= w.topLt
+            (w) => w.address === address && w.floorLt < gap.prevLt && gap.prevLt <= w.topLt,
           );
           if (covered) continue;
           this.addWalk({
@@ -456,7 +457,10 @@ export class Indexer extends EventEmitter {
       } catch (e) {
         rt.dirty = true;
         this.metrics.error(classifyError(e), "maintain");
-        this.logger.warn(`[${toFriendlyAddress(address)}] maintenance failed:`, (e as Error)?.message);
+        this.logger.warn(
+          `[${toFriendlyAddress(address)}] maintenance failed:`,
+          (e as Error)?.message,
+        );
       }
     });
   }
@@ -497,7 +501,7 @@ export class Indexer extends EventEmitter {
 
   private addWalk(
     w: Omit<Walk, "id" | "pages" | "fetched" | "split" | "failures" | "notBefore" | "running">,
-    split = false
+    split = false,
   ) {
     const walk: Walk = {
       ...w,
@@ -595,10 +599,9 @@ export class Indexer extends EventEmitter {
       this.metrics.error(kind, "walk");
       // "Not found" can also mean "not seen yet" on every server we asked, so only
       // a repeated miss is treated as history nobody serves.
-      const delay =
-        isParked(walk)
-          ? this.o.archiveRetryMs
-          : Math.min(this.o.retryMaxMs, this.o.retryMinMs * 2 ** (walk.failures - 1));
+      const delay = isParked(walk)
+        ? this.o.archiveRetryMs
+        : Math.min(this.o.retryMaxMs, this.o.retryMinMs * 2 ** (walk.failures - 1));
       walk.notBefore = Date.now() + delay;
       const msg = `[${toFriendlyAddress(address)}] fetch at lt ${walk.cursor.lt} failed (${kind}), retry in ${Math.round(delay / 1000)}s: ${(e as Error)?.message ?? e}`;
       if (walk.failures === 1 || isParked(walk)) this.logger.warn(msg);
@@ -614,7 +617,11 @@ export class Indexer extends EventEmitter {
   private async fetchRange(walk: Walk) {
     const h = this.history;
     const fromHistory = async (why: string) => {
-      const page = await h!.source.getTransactions(walk.address, walk.cursor, h!.source.maxPageSize);
+      const page = await h!.source.getTransactions(
+        walk.address,
+        walk.cursor,
+        h!.source.maxPageSize,
+      );
       validatePage(walk.cursor, page);
       this.metrics.inc("ton_watch_history_pages_total", { source: h!.source.name, why });
       return page;
@@ -628,7 +635,11 @@ export class Indexer extends EventEmitter {
       }
     }
     try {
-      const page = await this.source.getTransactions(walk.address, walk.cursor, this.source.maxPageSize);
+      const page = await this.source.getTransactions(
+        walk.address,
+        walk.cursor,
+        this.source.maxPageSize,
+      );
       validatePage(walk.cursor, page);
       return page;
     } catch (e) {
@@ -662,7 +673,7 @@ export class Indexer extends EventEmitter {
     const span = walk.cursor.lt - floor;
     const targets = Array.from(
       { length: parts - 1 },
-      (_, i) => floor + (span * BigInt(i + 1)) / BigInt(parts)
+      (_, i) => floor + (span * BigInt(i + 1)) / BigInt(parts),
     );
     this.metrics.inc("ton_watch_splits_total");
     void Promise.all(
@@ -670,8 +681,8 @@ export class Indexer extends EventEmitter {
         this.source.findTxNear!(walk.address, lt, { ltPerTx }).catch((e) => {
           this.metrics.error(classifyError(e), "findTxNear");
           return null;
-        })
-      )
+        }),
+      ),
     ).then((found) => {
       if (!this.walks.has(walk.id)) return;
       // Only points strictly inside what is still left of the walk.
@@ -686,13 +697,13 @@ export class Indexer extends EventEmitter {
       for (const p of points) {
         this.addWalk(
           { address: walk.address, kind: walk.kind, cursor: p, floorLt: below, topLt: p.lt },
-          true
+          true,
         );
         below = p.lt;
       }
       walk.floorLt = below;
       this.logger.debug(
-        `[${toFriendlyAddress(walk.address)}] split ~${Math.round(remaining)} txs into ${points.length + 1} parts`
+        `[${toFriendlyAddress(walk.address)}] split ~${Math.round(remaining)} txs into ${points.length + 1} parts`,
       );
     });
   }
@@ -719,10 +730,7 @@ export class Indexer extends EventEmitter {
     const all = [...this.walks.values()];
     this.metrics.set("ton_watch_addresses", this.runtimes.size);
     this.metrics.set("ton_watch_walks", all.length);
-    this.metrics.set(
-      "ton_watch_walks_stuck",
-      all.filter(isParked).length
-    );
+    this.metrics.set("ton_watch_walks_stuck", all.filter(isParked).length);
     let gaps = 0;
     let maxLag = 0;
     for (const rt of this.runtimes.values()) {

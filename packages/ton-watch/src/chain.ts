@@ -14,7 +14,7 @@ export function validatePage(from: TxId, page: TxRecord[]): void {
   if (first.lt !== from.lt || !first.hash.equals(from.hash)) {
     throw new SourceError(
       "bad_response",
-      `page starts at ${first.lt} but ${from.lt} was requested`
+      `page starts at ${first.lt} but ${from.lt} was requested`,
     );
   }
   for (let i = 0; i + 1 < page.length; i++) {
@@ -23,15 +23,14 @@ export function validatePage(from: TxId, page: TxRecord[]): void {
     if (cur.prevLt !== next.lt || !cur.prevHash.equals(next.hash)) {
       throw new SourceError(
         "bad_response",
-        `broken chain inside page: ${cur.lt} -> prev ${cur.prevLt}, got ${next.lt}`
+        `broken chain inside page: ${cur.lt} -> prev ${cur.prevLt}, got ${next.lt}`,
       );
     }
   }
 }
 
 /** A transaction is anchored when its predecessor is out of scope (or does not exist). */
-export const isAnchored = (tx: Pick<TxRecord, "prevLt">, startLt: bigint) =>
-  tx.prevLt <= startLt;
+export const isAnchored = (tx: Pick<TxRecord, "prevLt">, startLt: bigint) => tx.prevLt <= startLt;
 
 /**
  * Reference implementation of frontier/gap detection over an ascending list of one
@@ -42,7 +41,7 @@ export function analyzeChain(
   address: string,
   txsAsc: TxRecord[],
   startLt: bigint,
-  from: TxId | null = null
+  from: TxId | null = null,
 ): { frontier: TxId | null; gaps: Gap[] } {
   const byLt = new Map<bigint, TxRecord>();
   for (const tx of txsAsc) byLt.set(tx.lt, tx);
@@ -58,8 +57,7 @@ export function analyzeChain(
       continue;
     }
     const linked =
-      isAnchored(tx, startLt) ||
-      (byLt.get(tx.prevLt)?.hash.equals(tx.prevHash) ?? false);
+      isAnchored(tx, startLt) || (byLt.get(tx.prevLt)?.hash.equals(tx.prevHash) ?? false);
     if (!linked) {
       blocked = true;
       gaps.push({

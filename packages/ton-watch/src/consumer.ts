@@ -1,10 +1,16 @@
 import type { EventEmitter } from "node:events";
 
-import { silentLogger, type Logger } from "./logger";
+import { type Logger, silentLogger } from "./logger";
 import { Metrics } from "./metrics";
 import type { Store } from "./stores/store";
 import { toFriendlyAddress } from "./ton";
-import { completeUpTo, toIndexedTx, type AddressState, type IndexedTx, type TxRecord } from "./types";
+import {
+  type AddressState,
+  completeUpTo,
+  type IndexedTx,
+  type TxRecord,
+  toIndexedTx,
+} from "./types";
 
 export interface HandlerContext {
   consumer: string;
@@ -96,7 +102,7 @@ export class Consumer {
     store: Store,
     handler: TxHandler,
     options: ProcessOptions & { addresses?: string[] } = {},
-    deps: { events?: EventEmitter; logger?: Logger; metrics?: Metrics } = {}
+    deps: { events?: EventEmitter; logger?: Logger; metrics?: Metrics } = {},
   ) {
     this.name = name;
     this.store = store;
@@ -164,7 +170,7 @@ export class Consumer {
   /** Runs one delivery round. Resolves to the number of transactions delivered. */
   async runOnce(): Promise<number> {
     const states = (await this.store.listAddresses()).filter(
-      (s) => !this.only || this.only.has(s.address)
+      (s) => !this.only || this.only.has(s.address),
     );
     for (const s of states) {
       if (!this.lanes.has(s.address)) {
@@ -186,7 +192,9 @@ export class Consumer {
       if (!this.running) break;
       if (delivered > 0 || this.pending) continue;
       const halted = [...this.lanes.values()].filter((l) => l.notBefore > Date.now());
-      const nextRetry = halted.length ? Math.min(...halted.map((l) => l.notBefore)) - Date.now() : Infinity;
+      const nextRetry = halted.length
+        ? Math.min(...halted.map((l) => l.notBefore)) - Date.now()
+        : Infinity;
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, Math.max(1, Math.min(this.o.pollMs, nextRetry)));
         this.wakeUp = () => {
@@ -236,7 +244,7 @@ export class Consumer {
       this.metrics.inc("ton_watch_consumer_errors_total", { consumer: this.name });
       this.logger.warn(
         `consumer ${this.name} [${toFriendlyAddress(lane.address)}] failed at lt ${record.lt}, retry in ${Math.round(delay / 1000)}s:`,
-        (e as Error)?.message ?? e
+        (e as Error)?.message ?? e,
       );
       return false;
     }
@@ -287,9 +295,10 @@ export class Consumer {
     const fill = async (state: AddressState) => {
       const lane = this.lanes.get(state.address)!;
       const cursor = await this.cursorFor(lane, state);
-      const items = cursor < watermark
-        ? await this.store.read(state.address, cursor, watermark, this.o.batchSize)
-        : [];
+      const items =
+        cursor < watermark
+          ? await this.store.read(state.address, cursor, watermark, this.o.batchSize)
+          : [];
       buffers.set(state.address, { items, done: items.length < this.o.batchSize });
     };
     await Promise.all(states.map(fill));
@@ -299,7 +308,10 @@ export class Consumer {
       let pick: TxRecord | null = null;
       for (const s of states) {
         const head = buffers.get(s.address)!.items[0];
-        if (head && (!pick || head.lt < pick.lt || (head.lt === pick.lt && head.address < pick.address))) {
+        if (
+          head &&
+          (!pick || head.lt < pick.lt || (head.lt === pick.lt && head.address < pick.address))
+        ) {
           pick = head;
         }
       }
@@ -309,7 +321,8 @@ export class Consumer {
       total++;
       const buf = buffers.get(pick.address)!;
       buf.items.shift();
-      if (buf.items.length === 0 && !buf.done) await fill(states.find((s) => s.address === pick!.address)!);
+      if (buf.items.length === 0 && !buf.done)
+        await fill(states.find((s) => s.address === pick!.address)!);
     }
     return total;
   }

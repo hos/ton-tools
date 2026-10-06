@@ -73,7 +73,7 @@ describe("lastTxFromStateProof", () => {
   test.each(proofs.map((f) => [f.address.slice(0, 12), f] as const))("%s", (_, f) => {
     const got = lastTxFromStateProof(
       Buffer.from(f.proof, "base64"),
-      Buffer.from(f.address.split(":")[1]!, "hex")
+      Buffer.from(f.address.split(":")[1]!, "hex"),
     );
     expect(got?.lt.toString()).toBe(f.expected.lt);
     expect(got?.hash.toString("hex")).toBe(f.expected.hash);
@@ -83,6 +83,8 @@ describe("lastTxFromStateProof", () => {
     const f = proofs[0]!;
     const other = Buffer.from(f.address.split(":")[1]!, "hex");
     other[0] = other[0]! ^ 0xff;
-    expect(() => lastTxFromStateProof(Buffer.from(f.proof, "base64"), other)).toThrow(/not covered/);
+    expect(() => lastTxFromStateProof(Buffer.from(f.proof, "base64"), other)).toThrow(
+      /not covered/,
+    );
   });
 });

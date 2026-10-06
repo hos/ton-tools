@@ -76,7 +76,7 @@ const progress = setInterval(async () => {
   const written = metrics.sum("ton_watch_tx_written_total");
   console.log(
     `  ${fmt(el)}s: ${written} tx (${fmt(written / el)} tx/s), ${metrics.sum("ton_watch_source_calls_total")} calls, ` +
-      `walks ${metrics.get("ton_watch_walks")}, stuck ${metrics.get("ton_watch_walks_stuck")}`
+      `walks ${metrics.get("ton_watch_walks")}, stuck ${metrics.get("ton_watch_walks_stuck")}`,
   );
   if (el > limitMinutes * 60) {
     console.log("time limit reached");
@@ -114,14 +114,13 @@ async function finish(timedOut: boolean) {
     calls,
     callsPerSecond: calls / seconds,
     callsByMethod: Object.fromEntries(
-      ["getTip", "getAccountState", "getTransactions", "lookupBlock", "listBlockTransactions"].map((m) => [
-        m,
-        metrics.get("ton_watch_source_calls_total", { method: m }),
-      ])
+      ["getTip", "getAccountState", "getTransactions", "lookupBlock", "listBlockTransactions"].map(
+        (m) => [m, metrics.get("ton_watch_source_calls_total", { method: m })],
+      ),
     ),
     splitPoints: metrics.get("ton_watch_split_points_total"),
     errors: Object.fromEntries(
-      Object.entries(metrics.snapshot()).filter(([k]) => k.startsWith("ton_watch_errors_total"))
+      Object.entries(metrics.snapshot()).filter(([k]) => k.startsWith("ton_watch_errors_total")),
     ),
     completeAddresses: perAddress.filter((p) => p.complete).length,
     stuckRanges: perAddress.reduce((n, p) => n + p.stuckRanges, 0),
@@ -129,7 +128,7 @@ async function finish(timedOut: boolean) {
   };
   console.log(
     `outage ${days}d: ${written} tx in ${fmt(seconds)}s → ${fmt(result.txPerSecond)} tx/s, ${calls} calls ` +
-      `(${fmt(result.callsPerSecond)}/s), complete ${result.completeAddresses}/${addresses.length}, stuck ranges ${result.stuckRanges}`
+      `(${fmt(result.callsPerSecond)}/s), complete ${result.completeAddresses}/${addresses.length}, stuck ranges ${result.stuckRanges}`,
   );
   const previous = loadResult("outage") ?? {};
   saveResult("outage", { ...previous, [`${label}-${days}d`]: result });

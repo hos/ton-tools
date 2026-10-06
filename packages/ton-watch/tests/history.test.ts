@@ -30,20 +30,36 @@ describe("history plug-in", () => {
     // Liteservers only keep the newest ~quarter of history.
     source.faults = { archiveFloorLt: chain.txs(A)[300]!.lt };
     const history = new FakeHistory(chain);
-    const indexer = new Indexer({ store, source, detect: "poll", split: false, history: { source: history } });
+    const indexer = new Indexer({
+      store,
+      source,
+      detect: "poll",
+      split: false,
+      history: { source: history },
+    });
     await indexer.syncOnce();
     await expectComplete(store, chain);
     expect(history.calls.getTransactions).toBeGreaterThan(0);
     // Liteservers still did the recent part.
-    expect(indexer.metrics.get("ton_watch_history_pages_total", { source: "fake-history", why: "fallback" })).toBe(
-      history.calls.getTransactions
-    );
+    expect(
+      indexer.metrics.get("ton_watch_history_pages_total", {
+        source: "fake-history",
+        why: "fallback",
+      }),
+    ).toBe(history.calls.getTransactions);
   });
 
   test("without the plug-in the same history is parked, not skipped", async () => {
     const { chain, store, source } = await setup();
     source.faults = { archiveFloorLt: chain.txs(A)[300]!.lt };
-    const indexer = new Indexer({ store, source, detect: "poll", split: false, retryMinMs: 1, retryMaxMs: 2 });
+    const indexer = new Indexer({
+      store,
+      source,
+      detect: "poll",
+      split: false,
+      retryMinMs: 1,
+      retryMaxMs: 2,
+    });
     await indexer.syncOnce(20);
     expect((await store.getAddress(A))?.frontier).toBeNull();
     expect(indexer.status().find((s) => s.address === A)?.stuck).toBe(1);
@@ -52,7 +68,13 @@ describe("history plug-in", () => {
   test("boost: bigger pages from the plug-in mean far fewer requests", async () => {
     const { chain, store, source } = await setup();
     const history = new FakeHistory(chain, { pageSize: 200 });
-    const indexer = new Indexer({ store, source, detect: "poll", split: false, history: { source: history, mode: "boost" } });
+    const indexer = new Indexer({
+      store,
+      source,
+      detect: "poll",
+      split: false,
+      history: { source: history, mode: "boost" },
+    });
     await indexer.syncOnce();
     await expectComplete(store, chain);
     expect(history.calls.getTransactions).toBe(4); // 2 addresses × 400 tx / 200
@@ -62,7 +84,13 @@ describe("history plug-in", () => {
   test("boost leaves work to liteservers while the plug-in is busy", async () => {
     const { chain, store, source } = await setup();
     const history = new FakeHistory(chain, { busy: true });
-    const indexer = new Indexer({ store, source, detect: "poll", split: false, history: { source: history, mode: "boost" } });
+    const indexer = new Indexer({
+      store,
+      source,
+      detect: "poll",
+      split: false,
+      history: { source: history, mode: "boost" },
+    });
     await indexer.syncOnce();
     await expectComplete(store, chain);
     expect(history.calls.getTransactions).toBe(0);
@@ -71,16 +99,29 @@ describe("history plug-in", () => {
   test("a wrong page from the plug-in is rejected; liteservers fill in", async () => {
     const { chain, store, source } = await setup();
     const history = new FakeHistory(chain, { corrupt: true });
-    const indexer = new Indexer({ store, source, detect: "poll", split: false, history: { source: history, mode: "boost" } });
+    const indexer = new Indexer({
+      store,
+      source,
+      detect: "poll",
+      split: false,
+      history: { source: history, mode: "boost" },
+    });
     await indexer.syncOnce();
     await expectComplete(store, chain);
-    expect(indexer.metrics.get("ton_watch_errors_total", { kind: "bad_response", where: "history" })).toBeGreaterThan(0);
+    expect(
+      indexer.metrics.get("ton_watch_errors_total", { kind: "bad_response", where: "history" }),
+    ).toBeGreaterThan(0);
   });
 
   test("a failing plug-in never blocks liteserver fetching", async () => {
     const { chain, store, source } = await setup();
     const history = new FakeHistory(chain, { fail: true });
-    const indexer = new Indexer({ store, source, detect: "poll", history: { source: history, mode: "boost" } });
+    const indexer = new Indexer({
+      store,
+      source,
+      detect: "poll",
+      history: { source: history, mode: "boost" },
+    });
     await indexer.syncOnce();
     await expectComplete(store, chain);
   });
@@ -88,7 +129,12 @@ describe("history plug-in", () => {
   test("enabled: false switches it off without unwiring", async () => {
     const { chain, store, source } = await setup();
     const history = new FakeHistory(chain);
-    const indexer = new Indexer({ store, source, detect: "poll", history: { source: history, mode: "boost", enabled: false } });
+    const indexer = new Indexer({
+      store,
+      source,
+      detect: "poll",
+      history: { source: history, mode: "boost", enabled: false },
+    });
     await indexer.syncOnce();
     await expectComplete(store, chain);
     expect(history.calls.getTransactions).toBe(0);

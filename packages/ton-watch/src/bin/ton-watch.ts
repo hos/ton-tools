@@ -25,14 +25,13 @@
  *   TONCENTER_ENDPOINT      default https://toncenter.com/api/v2
  */
 import { createServer } from "node:http";
-import { Pool } from "pg";
 import type { ServerDefinition } from "@ton/ls";
-
+import { Pool } from "pg";
+import type { DetectMode } from "../indexer";
 import { logger } from "../logger";
 import { LiteSource } from "../source/lite-source";
 import { PgStore } from "../stores/pg/pg-store";
-import { TonWatch, type AddAddressOptions } from "../watch";
-import type { DetectMode } from "../indexer";
+import { type AddAddressOptions, TonWatch } from "../watch";
 
 const env = process.env;
 
@@ -87,7 +86,9 @@ async function main() {
     case "add": {
       const [address, flag, value] = args;
       if (!address) throw new Error("usage: ton-watch add <address> [--from now|genesis|<lt>]");
-      const raw = await watch.addAddress(address, { from: flag === "--from" ? parseFrom(value) : "now" });
+      const raw = await watch.addAddress(address, {
+        from: flag === "--from" ? parseFrom(value) : "now",
+      });
       logger.info(`watching ${raw}`);
       await watch.stop();
       process.exit(0);
@@ -111,7 +112,10 @@ async function main() {
   }
 
   const known = new Set((await watch.addresses()).map((s) => s.address));
-  for (const entry of (env.TON_WATCH_ADDRESSES ?? "").split(",").map((s) => s.trim()).filter(Boolean)) {
+  for (const entry of (env.TON_WATCH_ADDRESSES ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)) {
     const [address, from] = entry.split("@");
     const { toRaw } = await import("../watch");
     if (known.has(toRaw(address!))) continue;

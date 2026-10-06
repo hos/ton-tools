@@ -38,7 +38,10 @@ const servers = await getServers("mainnet");
 const rows = await Promise.all(
   servers.map(async (s) => {
     const host = `${ip(s.ip)}:${s.port}`;
-    const engine = new LiteSingleEngine({ host: `tcp://${host}`, publicKey: Buffer.from(s.id.key, "base64") });
+    const engine = new LiteSingleEngine({
+      host: `tcp://${host}`,
+      publicKey: Buffer.from(s.id.key, "base64"),
+    });
     engine.on("error", () => {});
     const lc = new LiteClient({ engine });
     for (let i = 0; i < 80 && !engine.isReady(); i++) await new Promise((r) => setTimeout(r, 100));
@@ -56,13 +59,20 @@ const rows = await Promise.all(
         results[p.days] = r.ids.length ? "ok" : "empty";
       } catch (e) {
         const m = String((e as Error).message);
-        results[p.days] = /cannot locate|not in db|cannot load/.test(m) ? "pruned" : `error: ${m.slice(0, 60)}`;
+        results[p.days] = /cannot locate|not in db|cannot load/.test(m)
+          ? "pruned"
+          : `error: ${m.slice(0, 60)}`;
       }
     }
     engine.close();
     const okDays = points.filter((p) => results[p.days] === "ok").map((p) => p.days);
-    return { host, reachable: true, results, deepestDays: okDays.length ? Math.max(...okDays) : null };
-  })
+    return {
+      host,
+      reachable: true,
+      results,
+      deepestDays: okDays.length ? Math.max(...okDays) : null,
+    };
+  }),
 );
 
 const table = [
@@ -70,10 +80,20 @@ const table = [
   `|---|${points.map(() => "---").join("|")}|`,
   ...rows
     .filter((r) => r.reachable)
-    .map((r) => `| ${r.host} | ${points.map((p) => (r.results[p.days] === "ok" ? "✓" : r.results[p.days] === "pruned" ? "·" : "✗")).join(" | ")} |`),
+    .map(
+      (r) =>
+        `| ${r.host} | ${points.map((p) => (r.results[p.days] === "ok" ? "✓" : r.results[p.days] === "pruned" ? "·" : "✗")).join(" | ")} |`,
+    ),
 ].join("\n");
 console.log(table);
-console.log(`unreachable: ${rows.filter((r) => !r.reachable).map((r) => r.host).join(", ") || "none"}`);
+console.log(
+  `unreachable: ${
+    rows
+      .filter((r) => !r.reachable)
+      .map((r) => r.host)
+      .join(", ") || "none"
+  }`,
+);
 
 saveResult("archive-depth", {
   measuredAt: new Date().toISOString(),

@@ -23,5 +23,5 @@ export function consoleLogger(level: LogLevel = "info"): Logger {
 export const silentLogger: Logger = consoleLogger("silent");
 
 export const logger: Logger = consoleLogger(
-  (process.env.TON_WATCH_LOG as LogLevel | undefined) ?? "info"
+  (process.env.TON_WATCH_LOG as LogLevel | undefined) ?? "info",
 );

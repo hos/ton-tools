@@ -3,8 +3,9 @@
  * consumers ask "what comes after what I processed", and get it — in order, once —
  * across new blocks, restarts and outages.
  */
-import { PGlite } from "@electric-sql/pglite";
+
 import { describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 
 import { silentLogger } from "../src/logger";
 import { MemoryStore } from "../src/stores/memory-store";
@@ -65,17 +66,22 @@ describe("TonWatch end to end", () => {
     chain.grow([A], 300, 5);
     const store = new MemoryStore();
     const seen = new Map<string, number>();
-    const handler = (tx: IndexedTx) => void seen.set(tx.hash.toString("hex"), (seen.get(tx.hash.toString("hex")) ?? 0) + 1);
+    const handler = (tx: IndexedTx) =>
+      void seen.set(tx.hash.toString("hex"), (seen.get(tx.hash.toString("hex")) ?? 0) + 1);
 
     // First process: indexes everything, consumer stops part way.
     const w1 = make(chain, store);
     await w1.addAddress(A, { from: "genesis" });
     let count = 0;
-    w1.process("billing", async (tx) => {
-      handler(tx);
-      count++;
-      await new Promise((r) => setTimeout(r, 1)); // slow consumer: stopped mid-stream
-    }, { batchSize: 10 });
+    w1.process(
+      "billing",
+      async (tx) => {
+        handler(tx);
+        count++;
+        await new Promise((r) => setTimeout(r, 1)); // slow consumer: stopped mid-stream
+      },
+      { batchSize: 10 },
+    );
     await w1.start();
     await until(() => count >= 120);
     await w1.stop();
@@ -192,13 +198,20 @@ describe("TonWatch end to end", () => {
     await w1.addAddress(A, { from: "genesis" });
     w1.process("pg", handler, { retryMinMs: 1, retryMaxMs: 2 });
     await w1.start();
-    await until(async () => (await db.query<{ n: number }>(`select count(*)::int n from seen`)).rows[0]!.n >= 30);
+    await until(
+      async () =>
+        (await db.query<{ n: number }>(`select count(*)::int n from seen`)).rows[0]!.n >= 30,
+    );
     await w1.stop({ closeStore: false });
 
     const w2 = make(chain, new PgStore(db as any));
     w2.process("pg", handler, { retryMinMs: 1, retryMaxMs: 2 });
     await w2.start();
-    await until(async () => (await db.query<{ n: number }>(`select count(*)::int n from seen`)).rows[0]!.n === 80, 10_000);
+    await until(
+      async () =>
+        (await db.query<{ n: number }>(`select count(*)::int n from seen`)).rows[0]!.n === 80,
+      10_000,
+    );
     await w2.stop({ closeStore: false });
     const { rows } = await db.query<{ lt: string }>(`select lt::text from seen order by lt`);
     expect(rows.map((r) => BigInt(r.lt))).toEqual(lts(chain.txs(A)));

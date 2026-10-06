@@ -42,8 +42,7 @@ export interface PgStoreOptions {
   onClose?: () => Promise<void>;
 }
 
-const buf = (v: unknown): Buffer =>
-  Buffer.isBuffer(v) ? v : Buffer.from(v as Uint8Array);
+const buf = (v: unknown): Buffer => (Buffer.isBuffer(v) ? v : Buffer.from(v as Uint8Array));
 const big = (v: unknown): bigint => BigInt(v as string);
 const hex = (b: Buffer) => b.toString("hex");
 
@@ -101,7 +100,7 @@ export class PgStore implements Store {
       `insert into $S.addresses (address, start_lt, synced_lt, synced_utime)
        values ($1, $2, $3, $4)
        on conflict (address) do update set active = true, updated_at = now()`,
-      [address, o.startLt.toString(), (o.syncedLt ?? 0n).toString(), o.syncedUtime ?? null]
+      [address, o.startLt.toString(), (o.syncedLt ?? 0n).toString(), o.syncedUtime ?? null],
     );
   }
 
@@ -111,7 +110,7 @@ export class PgStore implements Store {
     } else {
       await this.q(
         `update $S.addresses set active = false, updated_at = now() where address = $1`,
-        [address]
+        [address],
       );
     }
   }
@@ -143,10 +142,9 @@ export class PgStore implements Store {
   }
 
   async listAddresses(o?: { includeInactive?: boolean }) {
-    const { rows } = await this.q(
-      `${PgStore.selectState} where a.active or $1 order by a.id`,
-      [!!o?.includeInactive]
-    );
+    const { rows } = await this.q(`${PgStore.selectState} where a.active or $1 order by a.id`, [
+      !!o?.includeInactive,
+    ]);
     return rows.map(PgStore.toState);
   }
 
@@ -170,7 +168,7 @@ export class PgStore implements Store {
         txs.map((t) => hex(t.prevHash)),
         txs.map((t) => t.utime),
         txs.map((t) => hex(t.boc)),
-      ]
+      ],
     );
     return rows.length;
   }
@@ -195,7 +193,7 @@ export class PgStore implements Store {
        ${PgStore.unlinked}
        order by t.lt asc
        limit $2`,
-      [address, limit]
+      [address, limit],
     );
     return rows.map((r) => ({
       address,
@@ -225,7 +223,7 @@ export class PgStore implements Store {
        select coalesce((select frontier_lt from upd), (select frontier_lt from a))::text as lt,
          coalesce((select frontier_hash from upd),
            (select frontier_hash from $S.addresses where id = (select id from a))) as hash`,
-      [address]
+      [address],
     );
     const r = rows[0];
     return r?.lt != null ? { lt: big(r.lt), hash: buf(r.hash) } : null;
@@ -238,7 +236,7 @@ export class PgStore implements Store {
        where a.address = any($1::text[]) and a.synced_lt < $2
          and a.frontier_lt is not distinct from
            (select max(t.lt) from $S.transactions t where t.address_id = a.id)`,
-      [addresses, syncLt.toString(), utime]
+      [addresses, syncLt.toString(), utime],
     );
   }
 
@@ -249,7 +247,7 @@ export class PgStore implements Store {
        where a.address = $1 and t.lt > $2 and t.lt <= $3
        order by t.lt asc
        limit $4`,
-      [address, afterLt.toString(), uptoLt.toString(), limit]
+      [address, afterLt.toString(), uptoLt.toString(), limit],
     );
     return rows.map(
       (r): TxRecord => ({
@@ -260,7 +258,7 @@ export class PgStore implements Store {
         prevHash: buf(r.prev_hash),
         utime: Number(r.utime),
         boc: buf(r.boc),
-      })
+      }),
     );
   }
 
@@ -268,7 +266,7 @@ export class PgStore implements Store {
     const { rows } = await this.q(
       `select c.lt::text from $S.cursors c join $S.addresses a on a.id = c.address_id
        where c.consumer = $1 and a.address = $2`,
-      [consumer, address]
+      [consumer, address],
     );
     return rows[0] ? big(rows[0].lt) : null;
   }
@@ -278,7 +276,7 @@ export class PgStore implements Store {
       `insert into $S.cursors (consumer, address_id, lt)
        select $1, id, $3 from $S.addresses where address = $2
        on conflict (consumer, address_id) do update set lt = excluded.lt, updated_at = now()`,
-      [consumer, address, lt.toString()]
+      [consumer, address, lt.toString()],
     );
   }
 
@@ -286,7 +284,7 @@ export class PgStore implements Store {
     return this.db.transaction((q) => {
       const inner = new PgStore(
         { query: (t, p) => q.query(t, p), transaction: (f) => f(q) },
-        { schema: this.schema }
+        { schema: this.schema },
       );
       return fn({ store: inner, db: q });
     });

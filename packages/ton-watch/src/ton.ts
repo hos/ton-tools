@@ -7,7 +7,7 @@ export function toDisplayAddress(input: string | Address): string {
 
 export function toRawAddress(input: string | Address): string {
   const address = typeof input === "string" ? Address.parse(input) : input;
-  return address.toRawString()
+  return address.toRawString();
 }
 
 export function bigIntToBuffer(data: bigint | undefined, len = 64): Buffer {
@@ -50,10 +50,7 @@ export function toFriendlyAddress(address: string, offset = 4) {
   return address.slice(0, offset) + "..." + address.slice(-offset);
 }
 
-export function getTonExplorerLinks(
-  address: string,
-  isTestnet: boolean = false
-) {
+export function getTonExplorerLinks(address: string, isTestnet: boolean = false) {
   const prefix = isTestnet ? "testnet." : "";
   return {
     tonViewer: `https://${prefix}tonviewer.com/${address}`,

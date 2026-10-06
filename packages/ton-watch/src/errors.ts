@@ -11,7 +11,7 @@ export class SourceError extends Error {
   constructor(
     readonly kind: ErrorKind,
     message: string,
-    readonly cause?: unknown
+    readonly cause?: unknown,
   ) {
     super(message);
     this.name = "SourceError";

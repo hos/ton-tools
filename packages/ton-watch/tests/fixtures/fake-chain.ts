@@ -144,7 +144,7 @@ export class FakeSource implements TxSource {
 
   constructor(
     readonly chain: FakeChain,
-    public faults: Faults = {}
+    public faults: Faults = {},
   ) {
     this.random = rng(faults.seed ?? 1);
   }
@@ -226,7 +226,7 @@ export class FakeHistory {
   readonly calls = { getTransactions: 0 };
   constructor(
     readonly chain: FakeChain,
-    public opts: { pageSize?: number; fail?: boolean; corrupt?: boolean; busy?: boolean } = {}
+    public opts: { pageSize?: number; fail?: boolean; corrupt?: boolean; busy?: boolean } = {},
   ) {}
   get maxPageSize() {
     return this.opts.pageSize ?? 100;

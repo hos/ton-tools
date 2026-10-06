@@ -7,7 +7,9 @@
     "cli": "bun run src/bin/ton-watch.ts",
     "test": "bun test",
     "test:live": "LIVE=1 bun test tests/live.test.ts",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "lint": "biome check .",
+    "format": "biome check --write ."
   },
   "dependencies": {
     "@ton/core": "^0.63.1",

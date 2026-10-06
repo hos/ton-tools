@@ -33,7 +33,8 @@ async function toncenterTxs(account: string, count: number) {
     }
     const { transactions } = (await res.json()) as { transactions: { lt: string; hash: string }[] };
     if (transactions.length === 0) break;
-    for (const t of transactions) out.push({ lt: BigInt(t.lt), hash: Buffer.from(t.hash, "base64").toString("hex") });
+    for (const t of transactions)
+      out.push({ lt: BigInt(t.lt), hash: Buffer.from(t.hash, "base64").toString("hex") });
     endLt = (BigInt(transactions.at(-1)!.lt) - 1n).toString();
     await new Promise((r) => setTimeout(r, 1100));
   }
@@ -41,54 +42,51 @@ async function toncenterTxs(account: string, count: number) {
 }
 
 describe.skipIf(!LIVE)("live mainnet", () => {
-  test(
-    `last ${COUNT} transactions of a busy address are complete and match toncenter`,
-    async () => {
-      const raw = toRaw(ADDRESS);
-      const reference = await toncenterTxs(ADDRESS, COUNT);
-      const oldest = reference.at(-1)!;
-      const newest = reference[0]!;
+  test(`last ${COUNT} transactions of a busy address are complete and match toncenter`, async () => {
+    const raw = toRaw(ADDRESS);
+    const reference = await toncenterTxs(ADDRESS, COUNT);
+    const oldest = reference.at(-1)!;
+    const newest = reference[0]!;
 
-      const source = await LiteSource.connect();
-      const store = new MemoryStore();
-      await store.addAddress(raw, { startLt: oldest.lt - 1n });
-      const indexer = new Indexer({ store, source, concurrency: 32, detect: "poll" });
-      await indexer.syncOnce();
-      await source.close();
+    const source = await LiteSource.connect();
+    const store = new MemoryStore();
+    await store.addAddress(raw, { startLt: oldest.lt - 1n });
+    const indexer = new Indexer({ store, source, concurrency: 32, detect: "poll" });
+    await indexer.syncOnce();
+    await source.close();
 
-      const stored = await store.read(raw, 0n, 1n << 62n, 1_000_000);
-      const { gaps } = analyzeChain(raw, stored, oldest.lt - 1n);
-      expect(gaps).toEqual([]);
+    const stored = await store.read(raw, 0n, 1n << 62n, 1_000_000);
+    const { gaps } = analyzeChain(raw, stored, oldest.lt - 1n);
+    expect(gaps).toEqual([]);
 
-      const window = stored.filter((t) => t.lt <= newest.lt);
-      expect(window.length).toBe(reference.length);
-      const byLt = new Map(window.map((t) => [t.lt, t.hash.toString("hex")]));
-      for (const r of reference) expect(byLt.get(r.lt)).toBe(r.hash);
-    },
-    600_000
-  );
+    const window = stored.filter((t) => t.lt <= newest.lt);
+    expect(window.length).toBe(reference.length);
+    const byLt = new Map(window.map((t) => [t.lt, t.hash.toString("hex")]));
+    for (const r of reference) expect(byLt.get(r.lt)).toBe(r.hash);
+  }, 600_000);
 
-  test(
-    "toncenter history pages are identical to liteserver pages, and reach past liteserver retention",
-    async () => {
-      const raw = toRaw(ADDRESS);
-      const source = await LiteSource.connect();
-      const tip = await source.getTip();
-      const last = (await source.getLastTx(raw, tip))!;
-      const history = new ToncenterHistory({ apiKey: process.env.TONCENTER_API_KEY });
-      const fromLs = await source.getTransactions(raw, last, 16);
-      const fromTc = await history.getTransactions(raw, last, 16);
-      expect(fromTc.map((t) => t.hash.toString("hex"))).toEqual(fromLs.map((t) => t.hash.toString("hex")));
-      expect(fromTc.every((t, i) => t.boc.equals(fromLs[i]!.boc))).toBe(true);
+  test("toncenter history pages are identical to liteserver pages, and reach past liteserver retention", async () => {
+    const raw = toRaw(ADDRESS);
+    const source = await LiteSource.connect();
+    const tip = await source.getTip();
+    const last = (await source.getLastTx(raw, tip))!;
+    const history = new ToncenterHistory({ apiKey: process.env.TONCENTER_API_KEY });
+    const fromLs = await source.getTransactions(raw, last, 16);
+    const fromTc = await history.getTransactions(raw, last, 16);
+    expect(fromTc.map((t) => t.hash.toString("hex"))).toEqual(
+      fromLs.map((t) => t.hash.toString("hex")),
+    );
+    expect(fromTc.every((t, i) => t.boc.equals(fromLs[i]!.boc))).toBe(true);
 
-      // A year-old transaction of the Getgems fee wallet: pruned on public liteservers.
-      const gg = toRaw("EQBYTuYbLf8INxFtD8tQeNk5ZLy-nAX9ahQbG_yl1qQ-GEMS");
-      const old = { lt: 62278509000005n, hash: Buffer.from("sB/zEa2IZ4FDkGXgEwPKNQXhV6TNNJ7sr/tnGWseREM=", "base64") };
-      const page = await history.getTransactions(gg, old, 100);
-      expect(page[0]!.lt).toBe(old.lt);
-      expect(page.length).toBe(100);
-      await source.close();
-    },
-    120_000
-  );
+    // A year-old transaction of the Getgems fee wallet: pruned on public liteservers.
+    const gg = toRaw("EQBYTuYbLf8INxFtD8tQeNk5ZLy-nAX9ahQbG_yl1qQ-GEMS");
+    const old = {
+      lt: 62278509000005n,
+      hash: Buffer.from("sB/zEa2IZ4FDkGXgEwPKNQXhV6TNNJ7sr/tnGWseREM=", "base64"),
+    };
+    const page = await history.getTransactions(gg, old, 100);
+    expect(page[0]!.lt).toBe(old.lt);
+    expect(page.length).toBe(100);
+    await source.close();
+  }, 120_000);
 });

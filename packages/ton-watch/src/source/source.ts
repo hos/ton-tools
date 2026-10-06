@@ -52,7 +52,7 @@ export interface TxSource {
   getTouchedAccounts?(
     prev: ChainTip,
     next: ChainTip,
-    workchains: ReadonlySet<number>
+    workchains: ReadonlySet<number>,
   ): Promise<Map<string, TxId> | null>;
 
   /**

@@ -1,24 +1,24 @@
 import { Address, Cell, loadTransaction } from "@ton/core";
 import { getServers, type LsConfig, type ServerDefinition } from "@ton/ls";
 import { LiteClient, LiteSingleEngine } from "ton-lite-client";
-import { Functions } from "ton-lite-client/dist/schema";
 import type {
   liteServer_accountState,
   liteServer_allShardsInfo,
   liteServer_blockTransactions,
   tonNode_blockIdExt,
 } from "ton-lite-client/dist/schema";
+import { Functions } from "ton-lite-client/dist/schema";
 
 import { validatePage } from "../chain";
 import { SourceError } from "../errors";
-import { silentLogger, type Logger } from "../logger";
+import { type Logger, silentLogger } from "../logger";
 import { Metrics } from "../metrics";
 import { bigIntToBuffer } from "../ton";
-import type { TxId, TxRecord } from "../types";
-import { ServerPool, type PoolMember, type ServerPoolOptions } from "./pool";
-import { lastTxFromStateProof } from "./account-proof";
-import { parseShardTops } from "./shards";
 import { recordFromCell } from "../tx-cell";
+import type { TxId, TxRecord } from "../types";
+import { lastTxFromStateProof } from "./account-proof";
+import { type PoolMember, ServerPool, type ServerPoolOptions } from "./pool";
+import { parseShardTops } from "./shards";
 import type { BlockRef, ChainTip, ShardTop, TxSource } from "./source";
 
 export interface LiteSourceOptions extends ServerPoolOptions {
@@ -91,7 +91,7 @@ export class LiteSource implements TxSource {
   private constructor(
     members: PoolMember<LiteClient>[],
     engines: LiteSingleEngine[],
-    options: LiteSourceOptions
+    options: LiteSourceOptions,
   ) {
     this.metrics = options.metrics ?? new Metrics();
     this.pool = new ServerPool(members, { ...options, metrics: this.metrics });
@@ -135,7 +135,9 @@ export class LiteSource implements TxSource {
     // Give the rest a moment so the first calls spread out.
     await new Promise((r) => setTimeout(r, 500));
     const ready = engines.filter((e) => e.isReady()).length;
-    logger.info(`liteservers: ${ready}/${engines.length} connected (${archive.length} archival configured)`);
+    logger.info(
+      `liteservers: ${ready}/${engines.length} connected (${archive.length} archival configured)`,
+    );
     if (ready === 0) {
       for (const e of engines) e.close();
       throw new SourceError("network", "no liteserver could be reached");
@@ -154,7 +156,7 @@ export class LiteSource implements TxSource {
       const basechain = shards.filter((s) => s.workchain === 0);
       const syncLt = (basechain.length ? basechain : shards).reduce(
         (min, s) => (s.endLt < min ? s.endLt : min),
-        shards[0]?.endLt ?? 0n
+        shards[0]?.endLt ?? 0n,
       );
       return {
         seqno: info.last.seqno,
@@ -173,8 +175,12 @@ export class LiteSource implements TxSource {
 
   /** Logical time a shard block spans, measured from consecutive tips. */
   private ltPerShardBlock(top: ShardTop): number {
-    const first = this.firstTip?.shards.find((s) => s.shard === top.shard && s.workchain === top.workchain);
-    const last = this.lastTip?.shards.find((s) => s.shard === top.shard && s.workchain === top.workchain);
+    const first = this.firstTip?.shards.find(
+      (s) => s.shard === top.shard && s.workchain === top.workchain,
+    );
+    const last = this.lastTip?.shards.find(
+      (s) => s.shard === top.shard && s.workchain === top.workchain,
+    );
     if (first && last && last.seqno > first.seqno) {
       return Number(last.endLt - first.endLt) / (last.seqno - first.seqno);
     }
@@ -191,7 +197,7 @@ export class LiteSource implements TxSource {
           id: toBlockId(tip.block),
           account: { kind: "liteServer.accountId", workchain: addr.workChain, id: addr.hash },
         },
-        this.awaitArgs(tip.seqno)
+        this.awaitArgs(tip.seqno),
       )) as liteServer_accountState;
       return lastTxFromStateProof(res.proof, addr.hash);
     });
@@ -206,7 +212,7 @@ export class LiteSource implements TxSource {
         from.lt.toString(),
         from.hash,
         Math.min(count, this.maxPageSize),
-        this.awaitArgs()
+        this.awaitArgs(),
       );
       const page = Cell.fromBoc(res.transactions).map((cell) => recordFromCell(cell, raw));
       validatePage(from, page);
@@ -217,7 +223,7 @@ export class LiteSource implements TxSource {
   async getTouchedAccounts(
     prev: ChainTip,
     next: ChainTip,
-    workchains: ReadonlySet<number>
+    workchains: ReadonlySet<number>,
   ): Promise<Map<string, TxId> | null> {
     const prevTops = new Map(prev.shards.map((s) => [`${s.workchain}:${s.shard}`, s]));
     const blocks: (BlockRef | Omit<BlockRef, "rootHash" | "fileHash">)[] = [];
@@ -231,8 +237,10 @@ export class LiteSource implements TxSource {
       }
       if (top.seqno > before.seqno) blocks.push(top);
     }
-    if (next.shards.filter((s) => workchains.has(s.workchain)).length !==
-        prev.shards.filter((s) => workchains.has(s.workchain)).length) {
+    if (
+      next.shards.filter((s) => workchains.has(s.workchain)).length !==
+      prev.shards.filter((s) => workchains.has(s.workchain)).length
+    ) {
       return null;
     }
     if (workchains.has(-1)) {
@@ -252,9 +260,9 @@ export class LiteSource implements TxSource {
             : toRef(
                 (
                   await this.pool.call("lookupBlock", (c) =>
-                    c.lookupBlockByID({ workchain: b.workchain, shard: b.shard, seqno: b.seqno })
+                    c.lookupBlockByID({ workchain: b.workchain, shard: b.shard, seqno: b.seqno }),
                   )
-                ).id
+                ).id,
               );
         let after: { account: Buffer; lt: string } | null = null;
         for (;;) {
@@ -268,8 +276,8 @@ export class LiteSource implements TxSource {
                   count: 256,
                   after: after ? { kind: "liteServer.transactionId3", ...after } : null,
                 },
-                this.awaitArgs(next.seqno)
-              )
+                this.awaitArgs(next.seqno),
+              ),
           );
           for (const id of res.ids) {
             if (!id.account || !id.lt || !id.hash) continue;
@@ -282,7 +290,7 @@ export class LiteSource implements TxSource {
           if (!res.incomplete || !last?.account || !last.lt) break;
           after = { account: last.account, lt: last.lt };
         }
-      })
+      }),
     );
     return touched;
   }
@@ -290,12 +298,12 @@ export class LiteSource implements TxSource {
   async findTxNear(
     address: string,
     lt: bigint,
-    hint: { ltPerTx?: number } = {}
+    hint: { ltPerTx?: number } = {},
   ): Promise<TxId | null> {
     const addr = Address.parse(address);
     const tip = this.lastTip ?? (await this.getTip());
     const top = tip.shards.find(
-      (s) => s.workchain === addr.workChain && shardContains(s.shard, addr.hash)
+      (s) => s.workchain === addr.workChain && shardContains(s.shard, addr.hash),
     );
     if (!top) return null;
     // Budget the search by how often the account shows up in blocks.
@@ -311,7 +319,7 @@ export class LiteSource implements TxSource {
     // transaction of the account.
     let seqno = (
       await this.pool.call("lookupBlock", (c) =>
-        c.lookupBlockByLt({ workchain: top.workchain, shard: top.shard, lt })
+        c.lookupBlockByLt({ workchain: top.workchain, shard: top.shard, lt }),
       )
     ).id.seqno;
     const batch = 8;
@@ -321,16 +329,16 @@ export class LiteSource implements TxSource {
         seqnos.map(async (s) => {
           const id = (
             await this.pool.call("lookupBlock", (c) =>
-              c.lookupBlockByID({ workchain: top.workchain, shard: top.shard, seqno: s })
+              c.lookupBlockByID({ workchain: top.workchain, shard: top.shard, seqno: s }),
             )
           ).id;
           const res = await this.pool.call("listBlockTransactions", (c) =>
-            c.listBlockTransactions(id, { mode: 1 + 2 + 4 + 128, count: 16, after })
+            c.listBlockTransactions(id, { mode: 1 + 2 + 4 + 128, count: 16, after }),
           );
           const mine = res.ids.filter((x) => x.account?.equals(addr.hash) && x.lt && x.hash);
           const last = mine.at(-1);
           return last ? { lt: BigInt(last.lt!), hash: last.hash! } : null;
-        })
+        }),
       );
       const hit = found.find((f) => f !== null);
       if (hit) return hit;

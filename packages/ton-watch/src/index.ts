@@ -1,31 +1,48 @@
-export { TonWatch, toRaw, type TonWatchOptions, type AddAddressOptions, type Health } from "./watch";
-export { Indexer, type IndexerOptions, type DetectMode, type AddressStatus } from "./indexer";
+export { analyzeChain, validatePage } from "./chain";
 export {
   Consumer,
-  type TxHandler,
+  type ConsumerStatus,
   type HandlerContext,
   type ProcessOptions,
-  type ConsumerStatus,
+  type TxHandler,
 } from "./consumer";
-export { LiteSource, type LiteSourceOptions } from "./source/lite-source";
-export { ServerPool, type PoolMember, type ServerPoolOptions, type ServerStats } from "./source/pool";
-export type { TxSource, ChainTip, ShardTop, BlockRef } from "./source/source";
-export { MemoryStore } from "./stores/memory-store";
-export { PgStore, poolDatabase, type PgDatabase, type PgQueryable, type PgStoreOptions } from "./stores/pg/pg-store";
-export type { Store, AddAddressOptions as StoreAddAddressOptions } from "./stores/store";
+export { classifyError, type ErrorKind, SourceError } from "./errors";
+export type { HistoryOptions, HistorySource } from "./history";
+export { type AddressStatus, type DetectMode, Indexer, type IndexerOptions } from "./indexer";
+export { consoleLogger, type Logger, type LogLevel, silentLogger } from "./logger";
 export { Metrics } from "./metrics";
-export { SourceError, classifyError, type ErrorKind } from "./errors";
-export { consoleLogger, silentLogger, type Logger, type LogLevel } from "./logger";
-export { validatePage, analyzeChain } from "./chain";
+export { LiteSource, type LiteSourceOptions } from "./source/lite-source";
 export {
+  type PoolMember,
+  ServerPool,
+  type ServerPoolOptions,
+  type ServerStats,
+} from "./source/pool";
+export type { BlockRef, ChainTip, ShardTop, TxSource } from "./source/source";
+export { MemoryStore } from "./stores/memory-store";
+export {
+  type PgDatabase,
+  type PgQueryable,
+  PgStore,
+  type PgStoreOptions,
+  poolDatabase,
+} from "./stores/pg/pg-store";
+export type { AddAddressOptions as StoreAddAddressOptions, Store } from "./stores/store";
+export { recordFromCell } from "./tx-cell";
+export {
+  type AddressState,
   completeUpTo,
-  toIndexedTx,
-  txIdEquals,
+  type Gap,
+  type IndexedTx,
   type TxId,
   type TxRecord,
-  type IndexedTx,
-  type AddressState,
-  type Gap,
+  toIndexedTx,
+  txIdEquals,
 } from "./types";
-export type { HistorySource, HistoryOptions } from "./history";
-export { recordFromCell } from "./tx-cell";
+export {
+  type AddAddressOptions,
+  type Health,
+  TonWatch,
+  type TonWatchOptions,
+  toRaw,
+} from "./watch";

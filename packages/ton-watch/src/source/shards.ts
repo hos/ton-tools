@@ -14,7 +14,7 @@ export function parseShardTops(data: Buffer): ShardTop[] {
   const dict = Dictionary.loadDirect(
     Dictionary.Keys.Uint(32),
     Dictionary.Values.Cell(),
-    cs.loadRef()
+    cs.loadRef(),
   );
 
   const tops: ShardTop[] = [];

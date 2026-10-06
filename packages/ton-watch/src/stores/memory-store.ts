@@ -103,7 +103,7 @@ export class MemoryStore implements Store {
       address,
       base ? [base, ...above] : above,
       e.state.startLt,
-      e.state.frontier
+      e.state.frontier,
     );
     return gaps.slice(0, limit);
   }
@@ -115,7 +115,7 @@ export class MemoryStore implements Store {
       address,
       base ? [base, ...this.above(e)] : this.above(e),
       e.state.startLt,
-      e.state.frontier
+      e.state.frontier,
     );
     e.state.frontier = frontier;
     return frontier;
