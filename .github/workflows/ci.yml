@@ -1,0 +1,46 @@
+# Lint, typecheck and tests on every push to main and every pull request, so
+# a broken commit is caught before a release tag runs publish.yml.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [ton-ls, ton-watch]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - run: bun install --frozen-lockfile
+      - name: Typecheck
+        if: matrix.package == 'ton-watch'
+        working-directory: packages/${{ matrix.package }}
+        run: bun run typecheck
+      - name: Test
+        working-directory: packages/${{ matrix.package }}
+        run: bun test
