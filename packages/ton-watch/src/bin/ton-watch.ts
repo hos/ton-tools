@@ -23,7 +23,7 @@
  *   TON_WATCH_DATABASE_URL  Postgres connection string (required; DATABASE_URL is the fallback)
  *   TON_WATCH_NETWORK       mainnet | testnet | <global config URL>, default mainnet
  *   TON_WATCH_ADDRESSES     addresses to ensure on start: addr[@now|earliest|<lt>],...
- *   TON_WATCH_WEBHOOK_URL   deliver every transaction to this URL (see README "Webhooks")
+ *   TON_WATCH_WEBHOOK_URL   deliver every transaction to this URL (docs/service.md, "Webhooks")
  */
 import { run } from "../cli";
 

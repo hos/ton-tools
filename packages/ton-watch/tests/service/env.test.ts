@@ -5,12 +5,16 @@ import { join } from "node:path";
 import { ENV_VARS } from "../../src/service/env";
 
 const SRC = join(import.meta.dir, "../../src");
-const README = join(import.meta.dir, "../../README.md");
+const PACKAGE = join(import.meta.dir, "../..");
+/** Where the variables are documented in full. */
+const SERVICE_DOC = join(PACKAGE, "docs/service.md");
+/** Every page that may mention a variable. */
+const DOCS = [join(PACKAGE, "README.md"), ...sources(join(PACKAGE, "docs"), ".md")];
 
-/** Every `.ts` file under `dir`, recursively. */
-function sources(dir: string): string[] {
+/** Every file under `dir` with `extension`, recursively. */
+function sources(dir: string, extension = ".ts"): string[] {
   return readdirSync(dir, { withFileTypes: true, recursive: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(extension))
     .map((entry) => join(entry.parentPath, entry.name));
 }
 
@@ -42,13 +46,13 @@ describe("ENV_VARS", () => {
     for (const { description } of ENV_VARS) expect(description.length).toBeGreaterThan(0);
   });
 
-  test("README documents every variable", () => {
-    const readme = readFileSync(README, "utf8");
-    expect(tableNames.filter((name) => !readme.includes(name))).toEqual([]);
+  test("docs/service.md documents every variable", () => {
+    const doc = readFileSync(SERVICE_DOC, "utf8");
+    expect(tableNames.filter((name) => !doc.includes(name))).toEqual([]);
   });
 
-  test("README mentions no TON_WATCH_ variable the service does not read", () => {
-    const readme = readFileSync(README, "utf8");
+  test("the docs mention no TON_WATCH_ variable the service does not read", () => {
+    const readme = DOCS.map((file) => readFileSync(file, "utf8")).join("\n");
     const mentioned = new Set(
       [...readme.matchAll(/\bTON_WATCH_[A-Z0-9_]*[A-Z0-9](?![A-Z0-9_])/g)].map(([name]) => name),
     );
