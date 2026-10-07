@@ -1,102 +1,91 @@
 # @ton/ls
 
-This is a server filter package for the TON (The Open Network) project. It run benchmarks on the servers and filters them based on the results.
+Pick working TON liteservers instead of hardcoding them. `@ton/ls` reads a network
+config (mainnet, testnet, a config URL or your own list), benchmarks every
+liteserver in it at once, and tells you which ones answer and which are fast.
 
-## Installation
+```ts
+import { filterLiteServers, LiteConnection } from "@ton/ls";
+import { LiteClient, LiteRoundRobinEngine } from "ton-lite-client";
 
-To install the package and its dependencies, use the following command:
+const { fast } = await filterLiteServers("mainnet", { timeout: 2000, divergeFromAvg: 100 });
 
-```bash
-npx jsr add @ton/ls
-yarn dlx jsr add @ton/ls
-pnpm dlx jsr add @ton/ls
-bunx jsr add @ton/ls
+const engine = new LiteRoundRobinEngine(
+  fast.map(({ lsConfig }) => new LiteConnection(lsConfig)),
+);
+const client = new LiteClient({ engine });
+
+console.log(await client.getMasterchainInfo());
+
+engine.close(); // closes every connection; the process can exit
 ```
 
-## Usage
+## Install
 
-After installation, you can use the package in your project as follows:
+Published on [JSR](https://jsr.io/@ton/ls) (not on npm). Works with Node.js, Deno
+and Bun.
 
-```javascript
-import { LiteClient, type LiteEngine, LiteRoundRobinEngine } from "ton-lite-client";
-
-import { filterLiteServers, getServers, LiteConnection, type LsConfig } from "@ton/ls";
-
-let liteClient: LiteClient;
-let createLiteClient: Promise<void>;
-
-const engines: LiteEngine[] = [];
-
-export async function getLiteClient(_configUrl?: string): Promise<LiteClient> {
-  if (liteClient) {
-    return liteClient;
-  }
-
-  if (!createLiteClient) {
-    createLiteClient = (async () => {
-      const customURL = await getServers("https://ton-blockchain.github.io/global.config.json");
-      const mainnetServers = await getServers("mainnet");
-      const testnetServers = await getServers("testnet");
-      const customServers = [{id: {key: "base64"}, ip: 123, }] as LsConfig[];
-
-
-      // Same values as above can be passed here, mainnet, testnet, customURL or server list
-      const { fast, good } = await filterLiteServers('mainnet', {
-        timeout: 1000,
-        divergeFromAvg: 100, // ms - at most 100ms slower than the avg response time
-        // this will console.table the benchmark results
-        verbosity: "info",
-      });
-
-      for (const server of fast) {
-        const { lsConfig } = server;
-
-        engines.push(
-          new LiteConnection({
-            host: lsConfig.host,
-            publicKey: lsConfig.publicKey,
-          })
-        );
-      }
-
-      const engine: LiteEngine = new LiteRoundRobinEngine(engines);
-
-      const lc = new LiteClient({
-        engine,
-        batchSize: 1,
-      }) as LiteClient;
-
-      liteClient = lc;
-    })();
-  }
-
-  await createLiteClient;
-
-  return liteClient;
-}
-
+```sh
+npx jsr add @ton/ls     # Node.js
+deno add jsr:@ton/ls    # Deno
+bunx jsr add @ton/ls    # Bun
 ```
+
+`ton-lite-client` comes along as a dependency; add it yourself (^3.1) to import
+`LiteClient` as above.
+
+## How servers are picked
+
+`filterLiteServers(servers, options)`:
+
+1. Resolves `servers` into a list of liteservers. It accepts:
+   - `"mainnet"` or `"testnet"`: the official config from
+     [ton.org](https://ton.org/global.config.json);
+   - an `http(s)://` URL of a config in the same format;
+   - a list of entries copied from a config's `liteservers` (`LsConfig[]`).
+2. Opens a connection to every server in parallel and calls
+   `getMasterchainInfo()` on each, up to 100 times or until `timeout` ms
+   (default 3000) have passed.
+3. Closes every connection, then sorts the servers into:
+
+| field | meaning |
+|---|---|
+| `good` | answered at least once |
+| `fast` | `good` servers whose average answer time is at most `divergeFromAvg` ms above the average of `good`; all of `good` when `divergeFromAvg` is not set |
+| `fulfilled` | every server whose benchmark ran, working or not, with its numbers (`successCount`, `errorCount`, `timings`, `avgTiming`, `readyIn`, `seqnos`) |
+| `rejected` | errors from benchmarks that could not run at all |
+| `goodAvg`, `fastAvg` | average answer time (ms) of `good` and `fast` |
+
+Each entry's `lsConfig` carries the original config plus `host`
+(`tcp://<ip>:<port>`) and `publicKey` (a `Buffer`), ready for a connection.
+
+Pass `verbosity: "info"` to print the `fast` servers as a table.
+
+Lower-level pieces are exported too: `getServers(servers)` returns the resolved
+list without benchmarking, `benchmark(lsConfig, timeout)` measures a single
+server, and `intToIP(int)` turns a config's integer IP into dotted form.
 
 ## `LiteConnection`
 
-`filterLiteServers()` closes every connection it opened before it resolves, so it
-never keeps the process alive. For your own clients, `LiteConnection` is a
-ton-lite-client `LiteEngine` for one liteserver that can be closed for good:
-`close()` cancels reconnecting and query timeouts, destroys the socket and rejects
-pending queries. ton-lite-client's `LiteSingleEngine` (3.1.x) does not, so a process
-using it does not exit after `close()`.
+A ton-lite-client `LiteEngine` for one liteserver: a single connection that
+reconnects after it drops (after `reconnectMs`, default 10s) and sends queries
+once it is ready.
 
 ```ts
-const engine = new LiteConnection({ host: lsConfig.host, publicKey: lsConfig.publicKey });
-const client = new LiteClient({ engine });
+const connection = new LiteConnection({ host: lsConfig.host, publicKey: lsConfig.publicKey });
+const client = new LiteClient({ engine: connection });
 // ...
-engine.close();
+connection.close();
 ```
 
-## Contributing
+`close()` is final: it cancels reconnecting and every query timeout, destroys the
+socket (even mid-handshake) and rejects the queries still pending. Use it instead
+of ton-lite-client's `LiteSingleEngine`, which keeps reconnecting after `close()`,
+so a process using it does not exit.
 
-Contributions are welcome, after the project will be open sourced. Please submit a pull request or create an issue to discuss the changes you want to make.
+`filterLiteServers()` and `benchmark()` close their own connections before they
+resolve, so a benchmark never keeps the process alive either.
 
 ## License
 
-This project is licensed under the MIT License.
+[MIT](LICENSE.md)

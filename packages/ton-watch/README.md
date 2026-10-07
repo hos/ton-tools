@@ -33,7 +33,7 @@ await watch.start();
 await watch.close();
 ```
 
-See [`examples/incoming-payments.ts`](examples/incoming-payments.ts) for a complete
+See [`examples/incoming-payments.ts`](https://github.com/hos/ton-tools/blob/main/packages/ton-watch/examples/incoming-payments.ts) for a complete
 consumer.
 
 ## Install
@@ -655,7 +655,7 @@ ton-watch/<version>` and these headers:
 ```
 
 Other golden bodies (jetton notification, NFT transfer, bounces) are in
-[`tests/fixtures/golden/`](tests/fixtures/golden/). Encodings: lts and amounts
+[`tests/fixtures/golden/`](https://github.com/hos/ton-tools/tree/main/packages/ton-watch/tests/fixtures/golden). Encodings: lts and amounts
 (nanotons, jetton units) are decimal strings; hashes lowercase hex; addresses
 lowercase raw (`<workchain>:<hex>`); cells base64 BOCs, other binary data base64;
 unix times, opcodes, exit codes and counts JSON numbers. `prev` is null for the
@@ -774,7 +774,7 @@ error kind:
 
 ### How far back public liteservers go
 
-Measured 2026-10-06 (full table in [`bench/RESULTS.md`](bench/RESULTS.md)): 11 of the
+Measured 2026-10-06 (full table in [`bench/RESULTS.md`](https://github.com/hos/ton-tools/blob/main/packages/ton-watch/bench/RESULTS.md)): 11 of the
 12 reachable public mainnet liteservers serve account transactions back **35–41
 days**; one (185.86.79.9) is archival back past a year but missing roughly days
 3–50. Old **account state** is served for less than a day — which is why an indexer
@@ -883,7 +883,7 @@ a rewind to `earliest`, and a replay of a dead letter for a deleted transaction
 ## Performance
 
 All numbers measured against mainnet **public** liteservers; methodology, raw data
-and every run in [`bench/RESULTS.md`](bench/RESULTS.md).
+and every run in [`bench/RESULTS.md`](https://github.com/hos/ton-tools/blob/main/packages/ton-watch/bench/RESULTS.md).
 
 Same 1-hour window, same liteserver pool, same parallelism (64):
 
@@ -968,7 +968,7 @@ change detection and maintenance), `consumer/`, `source/` (`TxSource`,
 `parse/`, `webhook/` (receiver side), `plugins/toncenter/`, `service/` + `cli.ts` +
 `bin/` (the CLI), `metrics/`, `util/`. Tests mirror it.
 
-Releasing (version bumps, tags, JSR publishing): [RELEASING.md](../../RELEASING.md).
+Releasing (version bumps, tags, JSR publishing): [RELEASING.md](https://github.com/hos/ton-tools/blob/main/RELEASING.md).
 
 Benchmarks (`bench/`, mainnet): `accounts.ts` picks the address sets, then
 `archive-depth.ts`, `backfill.ts`, `block-scan.ts`, `outage.ts`, `idle.ts`;

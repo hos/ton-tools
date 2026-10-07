@@ -2,6 +2,8 @@
  * Typed transaction parsing: outcome and bounce flags, decoded comments, TEP-74
  * jetton and TEP-62 NFT messages, and deposit checks. Depends only on
  * `@ton/core`; usable on any `Transaction`, not just ones from the indexer.
+ *
+ * @module
  */
 export { type ParseBodyOptions, parseMessageBody } from "./body";
 export {
