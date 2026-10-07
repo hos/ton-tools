@@ -3,6 +3,14 @@
 All notable changes to `@ton/ls` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.0.5] - 2026-10-07
+
+### Changed
+
+- Documentation only: the README is rewritten (how servers are picked, what each
+  result field means, `LiteConnection`), the package has a module doc, and the
+  doc comment of `good` now matches the code (answered at least once).
+
 ## [0.0.4] - 2026-10-07
 
 ### Added
@@ -25,4 +33,5 @@ All notable changes to `@ton/ls` are documented here. The format follows
 - The published package contains only `src`, the README, this changelog and the
   license (no tests or tsconfig).
 
+[0.0.5]: https://github.com/hos/ton-tools/releases/tag/ton-ls-v0.0.5
 [0.0.4]: https://github.com/hos/ton-tools/releases/tag/ton-ls-v0.0.4

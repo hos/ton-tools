@@ -5,6 +5,14 @@ All notable changes to ton-watch are documented here. The format follows
 [stability policy](README.md#stability-policy) (semver, where a 0.x minor release
 may break and a patch release never does).
 
+## [0.1.1] - 2026-10-07
+
+### Changed
+
+- Documentation only: `@ton/watch/parse` has a module doc, and README links to
+  files that are not part of the published package (examples, benchmarks, test
+  fixtures, release steps) point to GitHub instead of breaking on jsr.io.
+
 ## [0.1.0] - 2026-10-07
 
 First release, published on JSR as [`@ton/watch`](https://jsr.io/@ton/watch)
@@ -61,4 +69,5 @@ must be published first (it provides `LiteConnection`).
   `/metrics` (Prometheus, with `ton_watch_build_info` and opt-in per-address
   series), `/status` (unstable).
 
+[0.1.1]: https://github.com/hos/ton-tools/releases/tag/ton-watch-v0.1.1
 [0.1.0]: https://github.com/hos/ton-tools/releases/tag/ton-watch-v0.1.0

@@ -74,7 +74,7 @@ export interface FilterLiteServersOptions {
 /**
  * Represents the return value of the `filterLiteServers` function.
  * @param fast - The LiteServers that are faster than the average.
- * @param good - The LiteServers that have a successCount greater than 1.
+ * @param good - The LiteServers that answered at least once (successCount > 0).
  * @param fulfilled - The LiteServers that were completed benchmarked, this doesn't mean they are good or fast,
  * or even the server was live, it just means the benchmark was completed.
  * @param rejected - The LiteServers that failed to be benchmarked, because of some unexpected error.
