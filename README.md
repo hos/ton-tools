@@ -14,8 +14,8 @@ bunx jsr add @ton/watch   # Bun
 npx jsr add @ton/ls       # Node.js (also Deno and Bun)
 ```
 
-Each package's README covers usage; `@ton/watch` also documents its stability
-policy and benchmarks.
+Each package's README covers usage; `@ton/watch` keeps the full reference, its
+stability policy and benchmarks in [`docs/`](packages/ton-watch/docs).
 
 ## Development
 
