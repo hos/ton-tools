@@ -10,7 +10,7 @@
  *   bun run ton-watch.ts add EQ…      # any other command
  *
  * Commands and environment variables are those of the `ton-watch` CLI
- * (docs/service.md).
+ * (docs/service.md, docs/webhooks.md).
  *
  * @module
  */

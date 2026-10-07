@@ -109,14 +109,31 @@ It also serves `/health` and Prometheus `/metrics` on port 9464.
 
 ## Documentation
 
-- [Library](docs/library.md): how it works, the full `TonWatch` and consumer API,
-  ordering and delivery guarantees, failures and dead letters, errors, decoding.
-- [Service](docs/service.md): every setting, the CLI, webhooks (payload, signing,
-  retries), HTTP endpoints, metrics.
-- [Operations](docs/operations.md): liteservers and history depth, the toncenter
-  plug-in, storage and retention, benchmarks, when not to use it, stability policy,
-  development.
-- [Migrations](docs/migrations.md) and the [changelog](CHANGELOG.md).
+**Using it in your code**
+
+- [How it works](docs/how-it-works.md): why order holds and outages heal, and when
+  a full-chain indexer fits better.
+- [Consumers](docs/consumers.md): ordering, exactly-once writes, retries and dead
+  letters, running one instance, rewinding.
+- [The TonWatch API](docs/api.md): every method, address formats, error codes,
+  entry points.
+- [Decoding transactions](docs/decoding.md): payments, jettons, NFTs, comments.
+
+**Running it as a service**
+
+- [Service and CLI](docs/service.md): every setting, HTTP endpoints, consumer
+  commands.
+- [Webhooks](docs/webhooks.md): payload, signing, retries, secret rotation.
+- [Metrics](docs/metrics.md): every Prometheus metric.
+
+**Operating it**
+
+- [Liteservers and history](docs/liteservers.md): how far back public servers go,
+  the toncenter plug-in.
+- [Storage](docs/storage.md): tables you may query, retention.
+- [Performance](docs/performance.md): benchmarks against a block scanner.
+- [Stability policy](docs/stability.md), [migrations](docs/migrations.md),
+  [development](docs/development.md) and the [changelog](CHANGELOG.md).
 
 ## License
 

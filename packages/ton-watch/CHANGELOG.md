@@ -2,8 +2,16 @@
 
 All notable changes to ton-watch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the
-[stability policy](docs/operations.md#stability-policy) (semver, where a 0.x minor release
+[stability policy](docs/stability.md) (semver, where a 0.x minor release
 may break and a patch release never does).
+
+## [0.1.3] - 2026-10-07
+
+### Changed
+
+- Documentation only: the reference is one page per topic under `docs/`
+  (consumers, API, decoding, service, webhooks, metrics, liteservers, storage,
+  performance, stability, development), listed by feature in the README.
 
 ## [0.1.2] - 2026-10-07
 

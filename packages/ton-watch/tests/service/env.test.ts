@@ -6,10 +6,10 @@ import { ENV_VARS } from "../../src/service/env";
 
 const SRC = join(import.meta.dir, "../../src");
 const PACKAGE = join(import.meta.dir, "../..");
-/** Where the variables are documented in full. */
-const SERVICE_DOC = join(PACKAGE, "docs/service.md");
+/** The reference pages, which document every variable. */
+const DOC_PAGES = sources(join(PACKAGE, "docs"), ".md");
 /** Every page that may mention a variable. */
-const DOCS = [join(PACKAGE, "README.md"), ...sources(join(PACKAGE, "docs"), ".md")];
+const DOCS = [join(PACKAGE, "README.md"), ...DOC_PAGES];
 
 /** Every file under `dir` with `extension`, recursively. */
 function sources(dir: string, extension = ".ts"): string[] {
@@ -46,8 +46,8 @@ describe("ENV_VARS", () => {
     for (const { description } of ENV_VARS) expect(description.length).toBeGreaterThan(0);
   });
 
-  test("docs/service.md documents every variable", () => {
-    const doc = readFileSync(SERVICE_DOC, "utf8");
+  test("docs/ documents every variable", () => {
+    const doc = DOC_PAGES.map((file) => readFileSync(file, "utf8")).join("\n");
     expect(tableNames.filter((name) => !doc.includes(name))).toEqual([]);
   });
 

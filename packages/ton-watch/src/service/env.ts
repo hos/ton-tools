@@ -10,7 +10,7 @@ export interface EnvVar {
 }
 
 /**
- * Every environment variable the service reads: the one list docs/service.md and
+ * Every environment variable the service reads: the one list docs/ and
  * `bin/ton-watch.ts` document. An empty value counts as unset.
  */
 export const ENV_VARS = [
